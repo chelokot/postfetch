@@ -6,7 +6,7 @@ RUN apk add --no-cache ca-certificates upx
 COPY package.json bun.lock tsconfig.json ./
 RUN bun install --frozen-lockfile
 COPY src ./src
-RUN bun build --compile --minify --target=bun-linux-x64-musl-baseline src/index.ts --outfile /rootfs/server
+RUN bun build --compile --minify --target=bun-linux-x64-musl-baseline src/server.ts --outfile /rootfs/server
 RUN upx --best --lzma /rootfs/server
 
 RUN set -eux; \

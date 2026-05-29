@@ -43,9 +43,6 @@ export const tiktokPageUserAgent = "Mozilla/5.0 (X11; Linux x86_64; rv:146.0) Ge
 
 export const instagramUserAgent = "Mozilla/5.0 (X11; Linux x86_64; rv:146.0) Gecko/20100101 Firefox/146.0";
 
-export const youtubeUserAgent =
-  "com.google.android.youtube/20.10.38(Linux; U; Android 15; en_US; Pixel 8 Build/AP3A.241105.007) gzip";
-
 export async function fetchRetry(url: string, init: RequestInit = {}, attempts = 3): Promise<Response> {
   let lastError: unknown;
   for (let attempt = 1; attempt <= attempts; attempt += 1) {

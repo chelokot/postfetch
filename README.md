@@ -1,8 +1,8 @@
 # postfetch
 
-Tiny Bun HTTP server that turns social post URLs into downloadable media files.
+Dependency-free social post media extractor with a tiny Bun server template.
 
-It is built for the boring path: send one URL, get back one file. If the post contains multiple media items, the response is a zip archive.
+The core API resolves a post URL into typed media sources. The server artifact is intentionally thin: send one URL, get back one file. If the post contains multiple media items, the response is a zip archive.
 
 ## Supported
 
@@ -14,7 +14,7 @@ It is built for the boring path: send one URL, get back one file. If the post co
 | Instagram | carousel post | `application/zip` with images/videos |
 | YouTube | `watch`, `shorts`, `live`, `embed`, `youtu.be` | progressive `video/mp4` |
 
-YouTube support intentionally uses a direct Innertube player request and selects a progressive MP4 stream. It does not merge adaptive video+audio streams, so it is not a full `yt-dlp` replacement.
+YouTube support bootstraps a public watch page session, calls Innertube through an Android VR client, and selects a progressive MP4 stream. It does not use `yt-dlp`, `youtubei.js`, or ffmpeg.
 
 ## Run
 
@@ -34,6 +34,16 @@ POST body works too:
 ```bash
 curl -OJ -X POST http://localhost:3040 --data 'https://vt.tiktok.com/ZSxpHvCUM/'
 ```
+
+## Library
+
+```ts
+import { postfetch } from "postfetch";
+
+const result = await postfetch("https://vt.tiktok.com/ZSxpHvCUM/");
+```
+
+`postfetch()` returns a typed media result with remote media URLs, headers, MIME types, filenames, platform id, and media kind. The server is just a deployment wrapper around this core API.
 
 ## API
 
@@ -78,4 +88,10 @@ bun run build:bin
 bun run container:build
 ```
 
-CI runs typecheck, unit tests, standalone binary build, and container build.
+Run live e2e checks against a running container:
+
+```bash
+POSTFETCH_E2E_BASE_URL=http://127.0.0.1:3040 bun run e2e
+```
+
+CI runs typecheck, unit tests, standalone binary build, container build, starts the image, and runs blocking live e2e checks against TikTok and Instagram. It also runs the YouTube live e2e probe as non-blocking because GitHub-hosted runner IPs currently hit YouTube's sign-in bot gate without account cookies.

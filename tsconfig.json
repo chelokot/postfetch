@@ -8,5 +8,5 @@
     "target": "ESNext",
     "types": ["bun-types"]
   },
-  "include": ["src", "test"]
+  "include": ["scripts", "src", "test"]
 }
