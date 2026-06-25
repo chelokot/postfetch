@@ -18,6 +18,7 @@ describe("detect", () => {
     expect(detect("https://vt.tiktok.com/ZSxpHvCUM/")).toBe("tiktok");
     expect(detect("https://youtu.be/dQw4w9WgXcQ")).toBe("youtube");
     expect(detect("https://www.facebook.com/share/v/ABC/")).toBe("facebook");
+    expect(detect("https://x.com/i/status/123")).toBe("twitter");
   });
 
   test("rejects unsupported hosts", () => {
@@ -41,6 +42,33 @@ describe("postfetch", () => {
     expect(result.platform).toBe("instagram");
     expect(result.items).toHaveLength(1);
     expect(result.items[0]).toMatchObject({ kind: "video", mime: "video/mp4", url: "https://cdn.test/reel.mp4" });
+  });
+
+  test("resolves an X video tweet via syndication and picks the highest bitrate (injected fetch)", async () => {
+    const tweet = {
+      __typename: "Tweet",
+      mediaDetails: [
+        {
+          type: "video",
+          video_info: {
+            variants: [
+              { bitrate: 256000, content_type: "video/mp4", url: "https://video.twimg.com/lo.mp4" },
+              { bitrate: 2176000, content_type: "video/mp4", url: "https://video.twimg.com/hi.mp4" },
+              { content_type: "application/x-mpegURL", url: "https://video.twimg.com/stream.m3u8" },
+            ],
+          },
+        },
+      ],
+    };
+    const result = await postfetch("https://x.com/i/status/123", {
+      fetch: stubFetch({
+        "https://cdn.syndication.twimg.com/tweet-result": () =>
+          new Response(JSON.stringify(tweet), { headers: { "content-type": "application/json" } }),
+      }),
+    });
+
+    expect(result.platform).toBe("twitter");
+    expect(result.items[0]).toMatchObject({ kind: "video", url: "https://video.twimg.com/hi.mp4" });
   });
 
   test("resolves a Facebook share link through the embed player (injected fetch)", async () => {
