@@ -1,18 +1,24 @@
 {
   "name": "@postfetch/core",
   "version": "0.2.0",
-  "description": "Zero-dependency typed core that turns Instagram, TikTok and YouTube post URLs into media files.",
+  "description": "Zero-dependency typed core that turns Facebook, Instagram, TikTok, X and YouTube post URLs into media files.",
   "license": "MIT",
   "type": "module",
   "exports": {
     ".": {
-      "types": "./src/index.ts",
-      "import": "./src/index.ts"
+      "bun": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
     }
   },
   "files": [
+    "dist",
     "src"
   ],
+  "publishConfig": {
+    "access": "public"
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/chelokot/postfetch.git",
@@ -22,13 +28,17 @@
   "keywords": [
     "cobalt",
     "downloader",
+    "facebook",
     "instagram",
     "media",
     "tiktok",
+    "twitter",
     "youtube",
     "zero-dependency"
   ],
   "scripts": {
+    "build": "bun build ./src/index.ts --outdir ./dist --target node --format esm && tsc -p tsconfig.build.json",
+    "prepublishOnly": "bun run build",
     "test": "bun test",
     "typecheck": "tsc --noEmit"
   }

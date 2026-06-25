@@ -1,5 +1,6 @@
 {
   "compilerOptions": {
+    "customConditions": ["bun"],
     "lib": ["DOM", "ESNext"],
     "module": "Preserve",
     "moduleResolution": "Bundler",
