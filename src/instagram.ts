@@ -45,9 +45,27 @@ const embedHeaders = {
   "User-Agent": instagramUserAgent,
 };
 
+const pageHeaders = {
+  accept: "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+  "accept-language": "en-US,en;q=0.9",
+  "sec-ch-ua": '"Chromium";v="131", "Not_A Brand";v="24"',
+  "sec-ch-ua-mobile": "?0",
+  "sec-ch-ua-platform": '"Linux"',
+  "sec-fetch-dest": "document",
+  "sec-fetch-mode": "navigate",
+  "sec-fetch-site": "none",
+  "sec-fetch-user": "?1",
+  "upgrade-insecure-requests": "1",
+  "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+};
+
 export async function resolveInstagram(input: Input): Promise<MediaResult> {
   const code = shortcode(input.url);
-  const media = (await mobileMedia(code, input.preferredWidth)) ?? (await embedMedia(code)) ?? (await graphqlMedia(code));
+  const media =
+    (await pageMedia(code, input.preferredWidth)) ??
+    (await mobileMedia(code, input.preferredWidth)) ??
+    (await embedMedia(code)) ??
+    (await graphqlMedia(code));
   if (!media) {
     throw new Error("Instagram media not found");
   }
@@ -66,6 +84,61 @@ function shortcode(input: string): string {
     throw new Error("Instagram shortcode not found");
   }
   return code;
+}
+
+async function pageMedia(code: string, preferredWidth: number): Promise<Json | null> {
+  const response = await fetchRetry(`https://www.instagram.com/p/${code}/`, { headers: pageHeaders });
+  if (!response.ok) {
+    return null;
+  }
+  const html = await response.text();
+  const media = inlineMedia(html, code);
+  return media && mediaItems(media, code, preferredWidth).length > 0 ? media : null;
+}
+
+function inlineMedia(html: string, code: string): Json | null {
+  for (const match of html.matchAll(/<script type="application\/json"[^>]*>(.*?)<\/script>/gs)) {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(match[1]);
+    } catch {
+      continue;
+    }
+    const media = searchMedia(parsed, code);
+    if (media) {
+      return media;
+    }
+  }
+  return null;
+}
+
+function searchMedia(node: unknown, code: string): Json | null {
+  if (Array.isArray(node)) {
+    for (const child of node) {
+      const media = searchMedia(child, code);
+      if (media) {
+        return media;
+      }
+    }
+    return null;
+  }
+  if (!object(node)) {
+    return null;
+  }
+  const hasMedia =
+    Array.isArray(node.video_versions) ||
+    Array.isArray(node.carousel_media) ||
+    (object(node.image_versions2) && Array.isArray(node.image_versions2.candidates));
+  if (hasMedia && node.code === code) {
+    return node;
+  }
+  for (const key in node) {
+    const media = searchMedia(node[key], code);
+    if (media) {
+      return media;
+    }
+  }
+  return null;
 }
 
 async function mobileMedia(code: string, preferredWidth: number): Promise<Json | null> {
@@ -293,7 +366,8 @@ function selectVersion(value: unknown, preferredWidth: number): string | null {
     }
     return Math.abs(width - preferredWidth) < Math.abs(currentWidth - preferredWidth) ? candidate : current;
   }, null);
-  return best ? string(best.url) : null;
+  const selected = best ?? versions[0] ?? null;
+  return selected ? string(selected.url) : null;
 }
 
 function entryObject(name: string, html: string): Json | null {
