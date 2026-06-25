@@ -37,7 +37,7 @@ if (result.items.length === 1) {
 | Export | Signature | Notes |
 | --- | --- | --- |
 | `postfetch` | `(url, options?) => Promise<PostfetchResult>` | Detects the platform and resolves its media. |
-| `detect` | `(url) => Platform` | `"instagram" \| "tiktok" \| "youtube"`; throws on anything else. |
+| `detect` | `(url) => Platform` | `"facebook" \| "instagram" \| "tiktok" \| "twitter" \| "youtube"`; throws on anything else. |
 | `download` | `(item, options?) => Promise<Response>` | Fetches one item from its CDN with the right headers. |
 | `archive` | `(result, options?) => Promise<{ bytes, filename, mime }>` | Zips every item (store mode, in-process). |
 | `toResponse` | `(result, options?) => Promise<Response>` | One item → streamed file; many → zip. Used by the server and templates. |
@@ -65,6 +65,21 @@ docker run --rm -p 3040:3040 postfetch
 ```
 
 The response carries `x-media-platform`, `x-media-id`, `x-media-count` and (for single files) `x-media-kind`, plus a `content-disposition` filename.
+
+## Use the CLI
+
+```bash
+bun install
+
+# run it straight from the repo
+bun apps/cli/src/index.ts https://www.instagram.com/reel/DZ0ixNxtvYq/ -o ~/Downloads
+
+# or install the `postfetch` command and call it anywhere
+cd apps/cli && bun link
+postfetch https://vt.tiktok.com/ZSxpHvCUM/
+```
+
+A single post is written as one file, carousels and slideshows as a `.zip`; the written path is printed to stdout.
 
 ## Supported
 
