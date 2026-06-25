@@ -60,4 +60,15 @@ describe("live network", () => {
     },
     30_000,
   );
+
+  test.skipIf(!runs("facebook"))(
+    "facebook share link resolves to a video via the embed player",
+    async () => {
+      const result = await postfetch("https://www.facebook.com/share/v/19MXsYX58F/");
+      expect(result.platform).toBe("facebook");
+      expect(result.items[0]?.kind).toBe("video");
+      expect(result.items[0]?.mime).toBe("video/mp4");
+    },
+    30_000,
+  );
 });

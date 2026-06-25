@@ -17,6 +17,7 @@ describe("detect", () => {
     expect(detect("https://www.instagram.com/reel/ABC/")).toBe("instagram");
     expect(detect("https://vt.tiktok.com/ZSxpHvCUM/")).toBe("tiktok");
     expect(detect("https://youtu.be/dQw4w9WgXcQ")).toBe("youtube");
+    expect(detect("https://www.facebook.com/share/v/ABC/")).toBe("facebook");
   });
 
   test("rejects unsupported hosts", () => {
@@ -40,6 +41,25 @@ describe("postfetch", () => {
     expect(result.platform).toBe("instagram");
     expect(result.items).toHaveLength(1);
     expect(result.items[0]).toMatchObject({ kind: "video", mime: "video/mp4", url: "https://cdn.test/reel.mp4" });
+  });
+
+  test("resolves a Facebook share link through the embed player (injected fetch)", async () => {
+    const canonical = "https://www.facebook.com/reel/123456";
+    const embed = `<html>{"hd_src":"https:\\/\\/cdn.test\\/fb.mp4","sd_src":"https:\\/\\/cdn.test\\/fb-sd.mp4"}</html>`;
+    const redirected = (target: string): Response => {
+      const response = new Response("");
+      Object.defineProperty(response, "url", { value: target });
+      return response;
+    };
+    const result = await postfetch("https://www.facebook.com/share/v/ABC/", {
+      fetch: stubFetch({
+        "https://www.facebook.com/share/v/ABC/": () => redirected(canonical),
+        "https://www.facebook.com/plugins/video.php": () => new Response(embed),
+      }),
+    });
+
+    expect(result.platform).toBe("facebook");
+    expect(result.items[0]).toMatchObject({ kind: "video", id: "123456", url: "https://cdn.test/fb.mp4" });
   });
 
   test("resolves a YouTube video through the session bootstrap (injected fetch)", async () => {

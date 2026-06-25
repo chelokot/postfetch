@@ -1,4 +1,4 @@
-export type Platform = "instagram" | "tiktok" | "youtube";
+export type Platform = "facebook" | "instagram" | "tiktok" | "youtube";
 
 export type MediaKind = "audio" | "image" | "video";
 
