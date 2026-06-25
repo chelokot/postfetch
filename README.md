@@ -76,6 +76,7 @@ The response carries `x-media-platform`, `x-media-id`, `x-media-count` and (for 
 | Instagram | carousel | `zip` of images / videos |
 | YouTube | `watch`, `shorts`, `live`, `embed`, `youtu.be` | progressive `video/mp4` |
 | Facebook | reel, video, `/share/v/…`, `fb.watch` | `video/mp4` |
+| X (Twitter) | tweet / status with video, gif, or photos | `video/mp4`, `image/jpeg`, or `zip` |
 
 YouTube uses a direct Innertube player request and picks a progressive MP4. It does **not** merge adaptive video+audio, so it is not a full `yt-dlp` replacement.
 

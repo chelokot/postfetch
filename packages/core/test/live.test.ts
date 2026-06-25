@@ -71,4 +71,15 @@ describe("live network", () => {
     },
     30_000,
   );
+
+  test.skipIf(!runs("twitter"))(
+    "x video tweet resolves via syndication",
+    async () => {
+      const result = await postfetch("https://x.com/i/status/2034598055668769263");
+      expect(result.platform).toBe("twitter");
+      expect(result.items[0]?.kind).toBe("video");
+      expect(result.items[0]?.mime).toBe("video/mp4");
+    },
+    30_000,
+  );
 });

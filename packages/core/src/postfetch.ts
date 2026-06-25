@@ -2,6 +2,7 @@ import { asUrl, createNet, PostfetchError, type Platform, type PostfetchResult }
 import { resolveFacebook } from "./facebook";
 import { resolveInstagram } from "./instagram";
 import { resolveTiktok } from "./tiktok";
+import { resolveTwitter } from "./twitter";
 import { resolveYoutube } from "./youtube";
 
 export type PostfetchOptions = {
@@ -26,6 +27,8 @@ export async function postfetch(url: string, options: PostfetchOptions = {}): Pr
       return resolveInstagram(context);
     case "tiktok":
       return resolveTiktok(context);
+    case "twitter":
+      return resolveTwitter(context);
     case "youtube":
       return resolveYoutube(context);
   }
@@ -45,5 +48,8 @@ export function detect(url: string): Platform {
   if (host.includes("facebook.com") || host === "fb.watch") {
     return "facebook";
   }
-  throw new PostfetchError(400, "only Facebook, Instagram, TikTok and YouTube URLs are supported");
+  if (host === "x.com" || host.endsWith(".x.com") || host.includes("twitter.com")) {
+    return "twitter";
+  }
+  throw new PostfetchError(400, "only Facebook, Instagram, TikTok, X and YouTube URLs are supported");
 }
