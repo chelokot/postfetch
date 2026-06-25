@@ -24,6 +24,29 @@ jobs:
       - uses: actions/checkout@v6
       - run: docker build -f apps/server/Dockerfile -t postfetch:ci .
 
+  container-e2e:
+    # Builds the showcase image and resolves real posts through the running
+    # container end-to-end. Non-gating: datacenter IPs are sometimes throttled.
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v6
+      - run: docker build -f apps/server/Dockerfile -t postfetch:e2e .
+      - name: Resolve real posts through the container
+        run: |
+          docker run -d --rm -p 3040:3040 --name postfetch postfetch:e2e
+          trap 'docker stop postfetch >/dev/null 2>&1 || true' EXIT
+          for attempt in $(seq 1 15); do
+            curl -sf -o /dev/null "http://127.0.0.1:3040/?url=https://vt.tiktok.com/ZSxpHvCUM/" && break || sleep 2
+          done
+          for url in \
+            "https://vt.tiktok.com/ZSxpHvCUM/" \
+            "https://www.instagram.com/reel/DZ0ixNxtvYq/"; do
+            type=$(curl -s -o /dev/null -w '%{content_type}' "http://127.0.0.1:3040/?url=$url")
+            echo "$url -> $type"
+            case "$type" in video/mp4|application/zip) ;; *) echo "unexpected content-type"; exit 1 ;; esac
+          done
+
   live:
     # Hits real Instagram, TikTok and YouTube. It guards the original regression
     # (a reel resolving to its cover image) and proves the rotating fingerprints

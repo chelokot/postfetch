@@ -33,4 +33,14 @@ describe("live network", () => {
     },
     60_000,
   );
+
+  test.skipIf(!live)(
+    "resolves a YouTube short to a progressive mp4 via the session bootstrap",
+    async () => {
+      const result = await postfetch("https://www.youtube.com/shorts/r5FpeOJItbw");
+      expect(result.platform).toBe("youtube");
+      expect(result.items[0]?.kind).toBe("video");
+    },
+    30_000,
+  );
 });

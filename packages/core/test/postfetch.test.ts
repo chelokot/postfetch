@@ -42,7 +42,9 @@ describe("postfetch", () => {
     expect(result.items[0]).toMatchObject({ kind: "video", mime: "video/mp4", url: "https://cdn.test/reel.mp4" });
   });
 
-  test("resolves a YouTube video from the player API (injected fetch)", async () => {
+  test("resolves a YouTube video through the session bootstrap (injected fetch)", async () => {
+    const watch = `<html>"visitorData":"VD123","jsUrl":"/s/player/abc/base.js"</html>`;
+    const playerJs = "var meta={signatureTimestamp:20123};";
     const player = {
       playabilityStatus: { status: "OK" },
       streamingData: { formats: [{ url: "https://cdn.test/yt.mp4", mimeType: "video/mp4; codecs=avc1", height: 720 }] },
@@ -50,6 +52,8 @@ describe("postfetch", () => {
     };
     const result = await postfetch("https://www.youtube.com/watch?v=dQw4w9WgXcQ", {
       fetch: stubFetch({
+        "https://www.youtube.com/watch": () => new Response(watch),
+        "https://www.youtube.com/s/player/": () => new Response(playerJs),
         "https://www.youtube.com/youtubei/v1/player": () =>
           new Response(JSON.stringify(player), { headers: { "content-type": "application/json" } }),
       }),
