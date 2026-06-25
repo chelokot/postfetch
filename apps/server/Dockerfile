@@ -1,12 +1,17 @@
 # syntax=docker/dockerfile:1
+# Build context is the repository root: docker build -f apps/server/Dockerfile -t postfetch:local .
 FROM docker.io/oven/bun:1.3.14-alpine AS build
 
 WORKDIR /src
 RUN apk add --no-cache ca-certificates upx
-COPY package.json bun.lock tsconfig.json ./
+COPY package.json bun.lock ./
+COPY packages/core/package.json ./packages/core/
+COPY apps/server/package.json ./apps/server/
 RUN bun install --frozen-lockfile
-COPY src ./src
-RUN bun build --compile --minify --target=bun-linux-x64-musl-baseline src/index.ts --outfile /rootfs/server
+COPY tsconfig.base.json ./
+COPY packages/core ./packages/core
+COPY apps/server ./apps/server
+RUN bun build --compile --minify --target=bun-linux-x64-musl-baseline apps/server/src/index.ts --outfile /rootfs/server
 RUN upx --best --lzma /rootfs/server
 
 RUN set -eux; \

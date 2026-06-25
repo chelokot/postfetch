@@ -1,31 +1,31 @@
 import {
   asUrl,
-  fetchRetry,
   filename,
   number,
   object,
   string,
-  youtubeUserAgent,
-  type Input,
+  type ResolveContext,
   type Json,
-  type MediaResult,
-  type MediaSource,
-} from "./core";
+  type PostfetchResult,
+  type MediaItem,
+} from "./internal";
+import { youtubeClient } from "./fingerprint";
 
 const apiKey = "AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8";
 
-export async function resolveYoutube(input: Input): Promise<MediaResult> {
+export async function resolveYoutube(input: ResolveContext): Promise<PostfetchResult> {
   const id = youtubeVideoId(input.url);
   if (!id) {
     throw new Error("YouTube video id not found");
   }
-  const response = await fetchRetry(`https://www.youtube.com/youtubei/v1/player?key=${apiKey}`, {
-    body: JSON.stringify(playerBody(id)),
+  const client = youtubeClient();
+  const response = await input.net(`https://www.youtube.com/youtubei/v1/player?key=${apiKey}`, {
+    body: JSON.stringify(playerBody(id, client.clientVersion)),
     headers: {
       "content-type": "application/json",
-      "user-agent": youtubeUserAgent,
+      "user-agent": client.userAgent,
       "x-youtube-client-name": "3",
-      "x-youtube-client-version": "20.10.38",
+      "x-youtube-client-version": client.clientVersion,
     },
     method: "POST",
   });
@@ -43,9 +43,9 @@ export async function resolveYoutube(input: Input): Promise<MediaResult> {
     throw new Error("YouTube progressive mp4 not found");
   }
   const title = object(payload) && object(payload.videoDetails) ? string(payload.videoDetails.title) : null;
-  const media: MediaSource = {
+  const media: MediaItem = {
     filename: filename(`youtube_${title ?? id}_${id}.mp4`),
-    headers: { "user-agent": youtubeUserAgent },
+    headers: { "user-agent": client.userAgent },
     id,
     kind: "video",
     mime: "video/mp4",
@@ -55,14 +55,14 @@ export async function resolveYoutube(input: Input): Promise<MediaResult> {
   return { archiveFilename: filename(`youtube_${id}.zip`), id, items: [media], platform: "youtube" };
 }
 
-function playerBody(id: string): Json {
+function playerBody(id: string, clientVersion: string): Json {
   return {
     contentCheckOk: true,
     context: {
       client: {
         androidSdkVersion: 35,
         clientName: "ANDROID",
-        clientVersion: "20.10.38",
+        clientVersion,
         gl: "US",
         hl: "en",
         osName: "Android",

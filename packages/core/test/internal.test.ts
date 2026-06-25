@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { asUrl, filename } from "../src/core";
+import { asUrl, filename } from "../src/internal";
 
 describe("core helpers", () => {
   test("normalizes filenames for content-disposition", () => {

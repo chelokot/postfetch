@@ -1,0 +1,8 @@
+{
+  "name": "postfetch-template-bun-server",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "scripts": { "start": "bun src/index.ts", "dev": "bun --watch src/index.ts", "typecheck": "tsc --noEmit" },
+  "dependencies": { "@postfetch/core": "^0.2.0" }
+}

@@ -1,14 +1,8 @@
 export type Platform = "instagram" | "tiktok" | "youtube";
 
-export type Input = {
-  platform: Platform | "auto";
-  preferredWidth: number;
-  url: string;
-};
-
 export type MediaKind = "audio" | "image" | "video";
 
-export type MediaSource = {
+export type MediaItem = {
   filename: string;
   headers: HeadersInit;
   id: string;
@@ -18,56 +12,57 @@ export type MediaSource = {
   url: string;
 };
 
-export type MediaResult = {
+export type PostfetchResult = {
   archiveFilename: string;
   id: string;
-  items: MediaSource[];
+  items: MediaItem[];
   platform: Platform;
 };
 
-export class HttpError extends Error {
+export type Net = (url: string, init?: RequestInit, attempts?: number) => Promise<Response>;
+
+export type ResolveContext = {
+  net: Net;
+  preferredWidth: number;
+  url: string;
+};
+
+export class PostfetchError extends Error {
   constructor(
     readonly status: number,
     message: string,
   ) {
     super(message);
+    this.name = "PostfetchError";
   }
 }
 
 export type Json = Record<string, unknown>;
 
-export const tiktokLambdaUserAgent =
-  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
-
-export const tiktokPageUserAgent = "Mozilla/5.0 (X11; Linux x86_64; rv:146.0) Gecko/20100101 Firefox/146.0";
-
-export const instagramUserAgent = "Mozilla/5.0 (X11; Linux x86_64; rv:146.0) Gecko/20100101 Firefox/146.0";
-
-export const youtubeUserAgent =
-  "com.google.android.youtube/20.10.38(Linux; U; Android 15; en_US; Pixel 8 Build/AP3A.241105.007) gzip";
-
-export async function fetchRetry(url: string, init: RequestInit = {}, attempts = 3): Promise<Response> {
-  let lastError: unknown;
-  for (let attempt = 1; attempt <= attempts; attempt += 1) {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 30_000);
-    try {
-      const response = await fetch(url, { ...init, signal: controller.signal });
-      if (!retryable(response.status) || attempt === attempts) {
-        return response;
+export function createNet(baseFetch: typeof fetch = globalThis.fetch): Net {
+  return async function net(url, init = {}, attempts = 3): Promise<Response> {
+    let lastError: unknown;
+    for (let attempt = 1; attempt <= attempts; attempt += 1) {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 30_000);
+      try {
+        const response = await baseFetch(url, { ...init, signal: controller.signal });
+        if (!retryable(response.status) || attempt === attempts) {
+          return response;
+        }
+        await sleep(retryDelay(response, attempt));
+      } catch (error) {
+        lastError = error;
+        if (attempt === attempts) {
+          break;
+        }
+        await sleep(500 * 2 ** (attempt - 1));
+      } finally {
+        clearTimeout(timeout);
       }
-      await sleep(retryDelay(response, attempt));
-    } catch (error) {
-      lastError = error;
-      if (attempt === attempts) {
-        break;
-      }
-      await sleep(500 * 2 ** (attempt - 1));
-    } finally {
-      clearTimeout(timeout);
     }
-  }
-  throw lastError instanceof Error ? lastError : new Error("request failed");
+    throw lastError instanceof Error ? lastError : new Error("request failed");
+  };
 }
 
 export function object(value: unknown): value is Json {
@@ -86,7 +81,7 @@ export function asUrl(value: string): URL {
   try {
     return new URL(value);
   } catch {
-    throw new HttpError(400, "invalid url");
+    throw new PostfetchError(400, "invalid url");
   }
 }
 

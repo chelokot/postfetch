@@ -1,7 +1,8 @@
 {
   "name": "postfetch",
-  "version": "0.1.0",
-  "description": "Tiny Bun server that turns social post URLs into downloadable media files.",
+  "version": "0.2.0",
+  "private": true,
+  "description": "Turn social post URLs into media files. A zero-dependency typed core, a superminimal showcase bun image, and deploy templates.",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -21,14 +22,17 @@
   ],
   "packageManager": "bun@1.3.14",
   "type": "module",
+  "workspaces": [
+    "packages/*",
+    "apps/*",
+    "templates/*"
+  ],
   "scripts": {
-    "build:bin": "bun build --compile --minify --target=bun-linux-x64-baseline src/index.ts --outfile dist/postfetch",
-    "check": "bun run typecheck && bun test",
-    "container:build": "docker build -t postfetch:local .",
-    "dev": "bun --watch src/index.ts",
-    "start": "bun src/index.ts",
+    "typecheck": "bun run --filter='*' typecheck",
     "test": "bun test",
-    "typecheck": "tsc --noEmit"
+    "check": "bun run typecheck && bun run test",
+    "dev": "bun run --filter='@postfetch/server' dev",
+    "start": "bun run --filter='@postfetch/server' start"
   },
   "devDependencies": {
     "bun-types": "1.3.14",

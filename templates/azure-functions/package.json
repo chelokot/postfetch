@@ -1,0 +1,9 @@
+{
+  "name": "postfetch-template-azure-functions",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "main": "src/index.ts",
+  "scripts": { "start": "func start", "typecheck": "tsc --noEmit" },
+  "dependencies": { "@azure/functions": "^4.5.0", "@postfetch/core": "^0.2.0" }
+}

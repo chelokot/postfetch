@@ -1,0 +1,9 @@
+{
+  "name": "postfetch-template-cli",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "bin": { "postfetch": "src/index.ts" },
+  "scripts": { "typecheck": "tsc --noEmit" },
+  "dependencies": { "@postfetch/core": "^0.2.0" }
+}

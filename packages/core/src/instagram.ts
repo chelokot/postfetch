@@ -1,71 +1,61 @@
 import {
   asUrl,
-  fetchRetry,
   filename,
-  instagramUserAgent,
   number,
   object,
   string,
-  type Input,
+  type ResolveContext,
+  type Net,
   type Json,
-  type MediaResult,
-  type MediaSource,
-} from "./core";
+  type PostfetchResult,
+  type MediaItem,
+} from "./internal";
+import { browserFingerprint, browserUserAgent, instagramAppUserAgent, navigationHeaders } from "./fingerprint";
 
 const appId = "936619743392459";
 
-const mobileHeaders = {
-  "accept-language": "en-US",
-  "content-length": "0",
-  "user-agent":
-    "Instagram 275.0.0.27.98 Android (33/13; 280dpi; 720x1423; Xiaomi; Redmi 7; onclite; qcom; en_US; 458229237)",
-  "x-fb-client-ip": "True",
-  "x-fb-http-engine": "Liger",
-  "x-fb-server-cluster": "True",
-  "x-ig-app-locale": "en_US",
-  "x-ig-device-locale": "en_US",
-  "x-ig-mapped-locale": "en_US",
-};
+function mobileHeaders(): Record<string, string> {
+  return {
+    "accept-language": "en-US",
+    "content-length": "0",
+    "user-agent": instagramAppUserAgent(),
+    "x-fb-client-ip": "True",
+    "x-fb-http-engine": "Liger",
+    "x-fb-server-cluster": "True",
+    "x-ig-app-locale": "en_US",
+    "x-ig-device-locale": "en_US",
+    "x-ig-mapped-locale": "en_US",
+  };
+}
 
-const embedHeaders = {
-  Accept:
-    "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
-  "Accept-Language": "en-GB,en;q=0.9",
-  "Cache-Control": "max-age=0",
-  Dnt: "1",
-  Priority: "u=0, i",
-  "Sec-Ch-Ua": 'Chromium";v="124", "Google Chrome";v="124", "Not-A.Brand";v="99',
-  "Sec-Ch-Ua-Mobile": "?0",
-  "Sec-Ch-Ua-Platform": "macOS",
-  "Sec-Fetch-Dest": "document",
-  "Sec-Fetch-Mode": "navigate",
-  "Sec-Fetch-Site": "none",
-  "Sec-Fetch-User": "?1",
-  "Upgrade-Insecure-Requests": "1",
-  "User-Agent": instagramUserAgent,
-};
+function embedHeaders(): Record<string, string> {
+  const fingerprint = browserFingerprint();
+  return {
+    Accept:
+      "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+    "Accept-Language": fingerprint.acceptLanguage,
+    "Cache-Control": "max-age=0",
+    Dnt: "1",
+    Priority: "u=0, i",
+    "Sec-Ch-Ua": fingerprint.secChUa,
+    "Sec-Ch-Ua-Mobile": "?0",
+    "Sec-Ch-Ua-Platform": fingerprint.secChUaPlatform,
+    "Sec-Fetch-Dest": "document",
+    "Sec-Fetch-Mode": "navigate",
+    "Sec-Fetch-Site": "none",
+    "Sec-Fetch-User": "?1",
+    "Upgrade-Insecure-Requests": "1",
+    "User-Agent": fingerprint.userAgent,
+  };
+}
 
-const pageHeaders = {
-  accept: "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-  "accept-language": "en-US,en;q=0.9",
-  "sec-ch-ua": '"Chromium";v="131", "Not_A Brand";v="24"',
-  "sec-ch-ua-mobile": "?0",
-  "sec-ch-ua-platform": '"Linux"',
-  "sec-fetch-dest": "document",
-  "sec-fetch-mode": "navigate",
-  "sec-fetch-site": "none",
-  "sec-fetch-user": "?1",
-  "upgrade-insecure-requests": "1",
-  "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-};
-
-export async function resolveInstagram(input: Input): Promise<MediaResult> {
+export async function resolveInstagram(input: ResolveContext): Promise<PostfetchResult> {
   const code = shortcode(input.url);
   const media =
-    (await pageMedia(code, input.preferredWidth)) ??
-    (await mobileMedia(code, input.preferredWidth)) ??
-    (await embedMedia(code)) ??
-    (await graphqlMedia(code));
+    (await pageMedia(input.net, code, input.preferredWidth)) ??
+    (await mobileMedia(input.net, code, input.preferredWidth)) ??
+    (await embedMedia(input.net, code)) ??
+    (await graphqlMedia(input.net, code));
   if (!media) {
     throw new Error("Instagram media not found");
   }
@@ -86,8 +76,8 @@ function shortcode(input: string): string {
   return code;
 }
 
-async function pageMedia(code: string, preferredWidth: number): Promise<Json | null> {
-  const response = await fetchRetry(`https://www.instagram.com/p/${code}/`, { headers: pageHeaders });
+async function pageMedia(net: Net, code: string, preferredWidth: number): Promise<Json | null> {
+  const response = await net(`https://www.instagram.com/p/${code}/`, { headers: navigationHeaders() });
   if (!response.ok) {
     return null;
   }
@@ -141,19 +131,19 @@ function searchMedia(node: unknown, code: string): Json | null {
   return null;
 }
 
-async function mobileMedia(code: string, preferredWidth: number): Promise<Json | null> {
-  const id = await mediaId(code);
+async function mobileMedia(net: Net, code: string, preferredWidth: number): Promise<Json | null> {
+  const id = await mediaId(net, code);
   if (!id) {
     return null;
   }
-  const media = await mobileInfo(id);
+  const media = await mobileInfo(net, id);
   return media && mediaItems(media, code, preferredWidth).length > 0 ? media : null;
 }
 
-async function mediaId(code: string): Promise<string | null> {
+async function mediaId(net: Net, code: string): Promise<string | null> {
   const url = new URL("https://i.instagram.com/api/v1/oembed/");
   url.searchParams.set("url", `https://www.instagram.com/p/${code}/`);
-  const response = await fetchRetry(url.href, { headers: mobileHeaders }, 1);
+  const response = await net(url.href, { headers: mobileHeaders() }, 1);
   if (!response.ok) {
     return null;
   }
@@ -161,9 +151,9 @@ async function mediaId(code: string): Promise<string | null> {
   return object(payload) ? string(payload.media_id) : null;
 }
 
-async function mobileInfo(mediaId: string): Promise<Json | null> {
-  const response = await fetchRetry(`https://i.instagram.com/api/v1/media/${mediaId}/info/`, {
-    headers: mobileHeaders,
+async function mobileInfo(net: Net, mediaId: string): Promise<Json | null> {
+  const response = await net(`https://i.instagram.com/api/v1/media/${mediaId}/info/`, {
+    headers: mobileHeaders(),
   }, 1);
   if (!response.ok) {
     return null;
@@ -174,9 +164,9 @@ async function mobileInfo(mediaId: string): Promise<Json | null> {
   return object(first) ? first : null;
 }
 
-async function embedMedia(code: string): Promise<Json | null> {
-  const response = await fetchRetry(`https://www.instagram.com/p/${code}/embed/captioned/`, {
-    headers: embedHeaders,
+async function embedMedia(net: Net, code: string): Promise<Json | null> {
+  const response = await net(`https://www.instagram.com/p/${code}/embed/captioned/`, {
+    headers: embedHeaders(),
   });
   if (!response.ok) {
     return null;
@@ -200,8 +190,8 @@ async function embedMedia(code: string): Promise<Json | null> {
   return embedded ?? gqlMedia;
 }
 
-async function graphqlMedia(code: string): Promise<Json | null> {
-  const params = await graphqlParams(code);
+async function graphqlMedia(net: Net, code: string): Promise<Json | null> {
+  const params = await graphqlParams(net, code);
   if (!params) {
     return null;
   }
@@ -218,10 +208,10 @@ async function graphqlMedia(code: string): Promise<Json | null> {
       shortcode: code,
     }),
   });
-  const response = await fetchRetry("https://www.instagram.com/graphql/query", {
+  const response = await net("https://www.instagram.com/graphql/query", {
     body,
     headers: {
-      ...embedHeaders,
+      ...embedHeaders(),
       ...params.headers,
       "X-FB-Friendly-Name": "PolarisPostActionLoadPostQueryQuery",
       "content-type": "application/x-www-form-urlencoded",
@@ -236,9 +226,9 @@ async function graphqlMedia(code: string): Promise<Json | null> {
   return data ? gqlShortcodeMedia(data) : null;
 }
 
-async function graphqlParams(code: string): Promise<{ body: Record<string, string>; headers: Record<string, string> } | null> {
-  const response = await fetchRetry(`https://www.instagram.com/p/${code}/`, {
-    headers: embedHeaders,
+async function graphqlParams(net: Net, code: string): Promise<{ body: Record<string, string>; headers: Record<string, string> } | null> {
+  const response = await net(`https://www.instagram.com/p/${code}/`, {
+    headers: embedHeaders(),
   });
   if (!response.ok) {
     return null;
@@ -298,7 +288,7 @@ function gqlShortcodeMedia(data: Json): Json | null {
   return object(media) ? media : null;
 }
 
-function mediaItems(media: Json, code: string, preferredWidth: number): MediaSource[] {
+function mediaItems(media: Json, code: string, preferredWidth: number): MediaItem[] {
   const sidecar = object(media.edge_sidecar_to_children) && Array.isArray(media.edge_sidecar_to_children.edges)
     ? media.edge_sidecar_to_children.edges
     : [];
@@ -317,13 +307,13 @@ function mediaItems(media: Json, code: string, preferredWidth: number): MediaSou
   return instagramItem(media, code, null, preferredWidth);
 }
 
-function instagramItem(media: Json, code: string, index: number | null, preferredWidth: number): MediaSource[] {
+function instagramItem(media: Json, code: string, index: number | null, preferredWidth: number): MediaItem[] {
   const video = selectVersion(media.video_versions, preferredWidth) ?? string(media.video_url);
   const suffix = index === null ? "" : `_${index}`;
   if (video) {
     return [{
       filename: filename(`instagram_${code}${suffix}.mp4`),
-      headers: { "user-agent": instagramUserAgent },
+      headers: { "user-agent": browserUserAgent() },
       id: code,
       kind: "video",
       mime: "video/mp4",
@@ -335,7 +325,7 @@ function instagramItem(media: Json, code: string, index: number | null, preferre
   return image
     ? [{
       filename: filename(`instagram_${code}${suffix}.jpg`),
-      headers: { "user-agent": instagramUserAgent },
+      headers: { "user-agent": browserUserAgent() },
       id: code,
       kind: "image",
       mime: "image/jpeg",

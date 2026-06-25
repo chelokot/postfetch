@@ -1,35 +1,35 @@
 import {
   asUrl,
-  fetchRetry,
   filename,
   object,
   string,
-  tiktokLambdaUserAgent,
-  tiktokPageUserAgent,
-  type Input,
+  type ResolveContext,
   type Json,
-  type MediaResult,
-  type MediaSource,
-} from "./core";
+  type Net,
+  type PostfetchResult,
+  type MediaItem,
+} from "./internal";
+import { browserUserAgent, firefoxUserAgent } from "./fingerprint";
 
 const marker = '<script id="__UNIVERSAL_DATA_FOR_REHYDRATION__" type="application/json">';
 
-export async function resolveTiktok(input: Input): Promise<MediaResult> {
-  const pageUrl = await followShortlink(input.url);
+export async function resolveTiktok(input: ResolveContext): Promise<PostfetchResult> {
+  const userAgent = browserUserAgent();
+  const pageUrl = await followShortlink(input.net, userAgent, input.url);
   const id = videoId(pageUrl);
   if (!id) {
     throw new Error("TikTok video id not found");
   }
-  const page = await fetchVideoPage(id, tiktokLambdaUserAgent).catch((error: unknown) => {
+  const page = await fetchVideoPage(input.net, id, userAgent).catch((error: unknown) => {
     if (!recoverablePageError(error)) {
       throw error;
     }
-    return fetchVideoPage(id, tiktokPageUserAgent);
+    return fetchVideoPage(input.net, id, firefoxUserAgent());
   });
   const user = author(page.item) ?? username(pageUrl) ?? "i";
   const headers: Record<string, string> = {
     referer: `https://www.tiktok.com/@${encodeURIComponent(user)}/video/${encodeURIComponent(id)}`,
-    "user-agent": tiktokLambdaUserAgent,
+    "user-agent": userAgent,
   };
   if (page.cookie) {
     headers.cookie = page.cookie;
@@ -41,8 +41,12 @@ export async function resolveTiktok(input: Input): Promise<MediaResult> {
   return { archiveFilename: filename(`tiktok_${user}_${id}.zip`), id, items, platform: "tiktok" };
 }
 
-async function fetchVideoPage(id: string, userAgent: string): Promise<{ item: Json; cookie: string | null }> {
-  const page = await fetchRetry(`https://www.tiktok.com/@i/video/${id}`, {
+async function fetchVideoPage(
+  net: Net,
+  id: string,
+  userAgent: string,
+): Promise<{ item: Json; cookie: string | null }> {
+  const page = await net(`https://www.tiktok.com/@i/video/${id}`, {
     headers: {
       accept: "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
       referer: "https://www.tiktok.com/",
@@ -52,12 +56,12 @@ async function fetchVideoPage(id: string, userAgent: string): Promise<{ item: Js
   return { cookie: cookieHeader(page.headers), item: itemStruct(await page.text()) };
 }
 
-async function followShortlink(input: string): Promise<string> {
+async function followShortlink(net: Net, userAgent: string, input: string): Promise<string> {
   const url = asUrl(input);
   if (!url.hostname.includes("vt.tiktok.com")) {
     return input;
   }
-  const response = await fetchRetry(input, { headers: { "user-agent": tiktokLambdaUserAgent }, redirect: "manual" }, 1);
+  const response = await net(input, { headers: { "user-agent": userAgent }, redirect: "manual" }, 1);
   const location = response.headers.get("location");
   if (location) {
     return new URL(location, input).href;
@@ -101,7 +105,7 @@ function downloadUrl(item: Json): string | null {
   return video ? string(video.playAddr) ?? string(video.downloadAddr) : null;
 }
 
-function mediaItems(item: Json, user: string, id: string, headers: HeadersInit): MediaSource[] {
+function mediaItems(item: Json, user: string, id: string, headers: HeadersInit): MediaItem[] {
   const images = imageItems(item, user, id, headers);
   if (images.length > 0) {
     const audio = audioItem(item, user, id, headers);
@@ -121,7 +125,7 @@ function mediaItems(item: Json, user: string, id: string, headers: HeadersInit):
     : [];
 }
 
-function imageItems(item: Json, user: string, id: string, headers: HeadersInit): MediaSource[] {
+function imageItems(item: Json, user: string, id: string, headers: HeadersInit): MediaItem[] {
   const imagePost = object(item.imagePost) ? item.imagePost : null;
   const images = imagePost && Array.isArray(imagePost.images) ? imagePost.images.filter(object) : [];
   return images.flatMap((image, index) => {
@@ -142,7 +146,7 @@ function imageItems(item: Json, user: string, id: string, headers: HeadersInit):
   });
 }
 
-function audioItem(item: Json, user: string, id: string, headers: HeadersInit): MediaSource | null {
+function audioItem(item: Json, user: string, id: string, headers: HeadersInit): MediaItem | null {
   const video = object(item.video) ? item.video : null;
   const music = object(item.music) ? item.music : null;
   const url = video ? string(video.playAddr) : null;
