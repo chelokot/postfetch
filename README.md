@@ -15,6 +15,10 @@ Send one URL, get back the media. Reels and videos come back as `video/mp4`, pho
 
 ## Use it as a library
 
+```bash
+bun add @postfetch/core      # or: npm i @postfetch/core
+```
+
 ```ts
 import { postfetch, download, archive } from "@postfetch/core";
 
