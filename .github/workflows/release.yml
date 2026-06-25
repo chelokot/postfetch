@@ -42,5 +42,5 @@ jobs:
           tmp=$(mktemp)
           jq --arg v "$version" '.version = $v' packages/core/jsr.json > "$tmp"
           mv "$tmp" packages/core/jsr.json
-      - run: npx jsr publish
+      - run: npx jsr publish --allow-dirty
         working-directory: packages/core
