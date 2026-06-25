@@ -1,16 +1,16 @@
 name: Release
 
-# Publishes @postfetch/core to npm when a v* tag is pushed, via npm Trusted
-# Publishing (OIDC) — no token or secret needed. Requires a trusted publisher
-# configured on the package for this repo + this workflow filename.
-# prepublishOnly builds dist (bundled ESM + .d.ts).
+# Publishes @postfetch/core to both npm and JSR when a v* tag is pushed, via
+# OIDC Trusted Publishing — no tokens or secrets. Each registry needs its trust
+# configured once: npm (trusted publisher on the package) and JSR (repo linked
+# to the package). The package version is taken from packages/core/package.json.
 on:
   push:
     tags:
       - "v*"
 
 jobs:
-  publish:
+  npm:
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -27,4 +27,20 @@ jobs:
       - run: npm install -g npm@latest
       - run: bun install --frozen-lockfile
       - run: npm publish --access public
+        working-directory: packages/core
+
+  jsr:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v6
+      - name: Sync jsr.json version from package.json
+        run: |
+          version=$(node -p "require('./packages/core/package.json').version")
+          tmp=$(mktemp)
+          jq --arg v "$version" '.version = $v' packages/core/jsr.json > "$tmp"
+          mv "$tmp" packages/core/jsr.json
+      - run: npx jsr publish
         working-directory: packages/core
