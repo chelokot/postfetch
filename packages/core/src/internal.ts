@@ -1,21 +1,36 @@
+/** A platform that {@link postfetch} can resolve. */
 export type Platform = "facebook" | "instagram" | "tiktok" | "twitter" | "youtube";
 
+/** The kind of a {@link MediaItem}. */
 export type MediaKind = "audio" | "image" | "video";
 
+/** A single resolved media file: a direct URL plus everything needed to fetch and name it. */
 export type MediaItem = {
+  /** Suggested download filename. */
   filename: string;
+  /** Headers required to fetch {@link MediaItem.url} from the CDN. */
   headers: HeadersInit;
+  /** Platform media id. */
   id: string;
+  /** Whether this item is a video, image or audio file. */
   kind: MediaKind;
+  /** MIME type of the media. */
   mime: string;
+  /** The platform this item came from. */
   platform: Platform;
+  /** Direct CDN URL of the media. */
   url: string;
 };
 
+/** The result of resolving a post: its platform, id and one or more media items. */
 export type PostfetchResult = {
+  /** Suggested filename when zipping every item. */
   archiveFilename: string;
+  /** Platform post/media id. */
   id: string;
+  /** The post's media, in order. */
   items: MediaItem[];
+  /** The platform the post came from. */
   platform: Platform;
 };
 
@@ -27,8 +42,16 @@ export type ResolveContext = {
   url: string;
 };
 
+/** An error carrying an HTTP status, so adapters can map failures onto responses. */
 export class PostfetchError extends Error {
+  /**
+   * Create an error tagged with an HTTP status.
+   *
+   * @param status HTTP status that best describes the failure.
+   * @param message Human-readable message.
+   */
   constructor(
+    /** HTTP status that best describes the failure. */
     readonly status: number,
     message: string,
   ) {

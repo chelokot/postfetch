@@ -1,16 +1,36 @@
 import { createNet, PostfetchError, type MediaItem, type PostfetchResult } from "./internal";
 import { zip } from "./zip";
 
+/** Options for {@link download}, {@link archive} and {@link toResponse}. */
 export type DownloadOptions = {
+  /** Custom `fetch` implementation. Defaults to the global `fetch`. */
   fetch?: typeof fetch;
 };
 
+/** A zip archive produced by {@link archive}. */
 export type Archive = {
+  /** The zip bytes (store mode, built in-process). */
   bytes: Uint8Array;
+  /** Suggested download filename. */
   filename: string;
+  /** Always `"application/zip"`. */
   mime: "application/zip";
 };
 
+/**
+ * Fetch a single media item from its CDN with the headers it requires.
+ *
+ * @param item A {@link MediaItem} from a {@link PostfetchResult}.
+ * @param options See {@link DownloadOptions}.
+ * @returns The upstream `Response`, ready to stream or buffer.
+ * @throws {PostfetchError} If the CDN responds with a non-OK status.
+ *
+ * @example
+ * ```ts
+ * const result = await postfetch(url);
+ * await Bun.write(result.items[0].filename, await download(result.items[0]));
+ * ```
+ */
 export async function download(item: MediaItem, options: DownloadOptions = {}): Promise<Response> {
   const net = createNet(options.fetch ?? globalThis.fetch);
   const response = await net(item.url, { headers: item.headers });
@@ -20,6 +40,13 @@ export async function download(item: MediaItem, options: DownloadOptions = {}): 
   return response;
 }
 
+/**
+ * Download every item of a result and zip them in-process (store mode).
+ *
+ * @param result A {@link PostfetchResult}.
+ * @param options See {@link DownloadOptions}.
+ * @returns The zip bytes and a suggested filename.
+ */
 export async function archive(result: PostfetchResult, options: DownloadOptions = {}): Promise<Archive> {
   const net = createNet(options.fetch ?? globalThis.fetch);
   const files = await Promise.all(
@@ -34,6 +61,15 @@ export async function archive(result: PostfetchResult, options: DownloadOptions 
   return { bytes: zip(files), filename: result.archiveFilename, mime: "application/zip" };
 }
 
+/**
+ * Turn a result into a ready-to-serve `Response`: a single item is streamed as
+ * its file, multiple items become a zip. Sets `content-disposition` and the
+ * `x-media-*` headers. This is what the showcase server and templates return.
+ *
+ * @param result A {@link PostfetchResult}.
+ * @param options See {@link DownloadOptions}.
+ * @returns A `Response` a server or edge function can return directly.
+ */
 export async function toResponse(result: PostfetchResult, options: DownloadOptions = {}): Promise<Response> {
   if (result.items.length === 1) {
     return singleResponse(result.items[0], options);
