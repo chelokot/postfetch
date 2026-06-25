@@ -48,12 +48,18 @@ jobs:
           done
 
   live:
-    # Hits real Instagram, TikTok and YouTube. It guards the original regression
-    # (a reel resolving to its cover image) and proves the rotating fingerprints
-    # are not all blocked. Datacenter IPs are sometimes throttled, so this job
-    # reports results without gating merges.
+    # One job per platform for at-a-glance visibility — a red `live (youtube)`
+    # is unmistakably YouTube's datacenter-IP bot gate, not a broken resolver.
+    # Guards the original regression (a reel resolving to its cover image) and
+    # proves the rotating fingerprints are not all blocked. Datacenter IPs are
+    # sometimes throttled, so these jobs report without gating merges.
+    name: live (${{ matrix.platform }})
     runs-on: ubuntu-latest
     continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [instagram, tiktok, youtube, facebook, twitter]
     steps:
       - uses: actions/checkout@v6
       - uses: oven-sh/setup-bun@v2
@@ -63,3 +69,4 @@ jobs:
       - run: bun test packages/core/test/live.test.ts
         env:
           POSTFETCH_LIVE: "1"
+          POSTFETCH_LIVE_PLATFORM: ${{ matrix.platform }}
