@@ -10,7 +10,8 @@ Send one URL, get back the media. Reels and videos come back as `video/mp4`, pho
 | --- | --- | --- |
 | `@postfetch/core` | [`packages/core`](packages/core) | The library. `postfetch(url)` → typed result. Zero runtime dependencies, injectable `fetch`, fully tested. |
 | `@postfetch/server` | [`apps/server`](apps/server) | The showcase: a tiny Bun HTTP server, compiled to one UPX-packed binary in a `scratch` image (~27 MB). |
-| templates | [`templates/`](templates) | Copy-and-go starters: AWS Lambda, Bun/Node server, Cloudflare Worker, CLI, Azure Functions. |
+| `@postfetch/cli` | [`apps/cli`](apps/cli) | A ready-to-run command-line downloader: `postfetch <url> -o <dir>`. |
+| templates | [`templates/`](templates) | Copy-and-go deploy starters: AWS Lambda, Bun/Node server, Cloudflare Worker, Azure Functions. |
 
 ## Use it as a library
 
@@ -88,7 +89,8 @@ This matters because, logged out, Instagram fingerprints the client: `api/v1/med
 ```
 packages/core     @postfetch/core — the library
 apps/server       @postfetch/server — showcase Bun image
-templates/        aws-lambda · bun-server · cloudflare-worker · cli · azure-functions
+apps/cli          @postfetch/cli — command-line downloader
+templates/        aws-lambda · bun-server · cloudflare-worker · azure-functions
 ```
 
 ## Develop

@@ -25,12 +25,6 @@ const instagramAppUserAgents = [
   "Instagram 309.0.0.40.113 Android (33/13; 440dpi; 1080x2280; OnePlus; HD1913; OnePlus7TPro; qcom; en_US; 537291984)",
 ] as const;
 
-const youtubeClients = [
-  { clientVersion: "20.10.38", device: "Pixel 8 Build/AP3A.241105.007", osVersion: "15", sdk: "35" },
-  { clientVersion: "19.47.53", device: "SM-S918B Build/UP1A.231005.007", osVersion: "14", sdk: "34" },
-  { clientVersion: "19.29.37", device: "Pixel 7 Build/UQ1A.240205.004", osVersion: "14", sdk: "34" },
-] as const;
-
 export type BrowserFingerprint = {
   acceptLanguage: string;
   secChUa: string;
@@ -78,17 +72,4 @@ export function firefoxUserAgent(): string {
 
 export function instagramAppUserAgent(): string {
   return pick(instagramAppUserAgents);
-}
-
-export type YoutubeClient = {
-  clientVersion: string;
-  userAgent: string;
-};
-
-export function youtubeClient(): YoutubeClient {
-  const client = pick(youtubeClients);
-  return {
-    clientVersion: client.clientVersion,
-    userAgent: `com.google.android.youtube/${client.clientVersion}(Linux; U; Android ${client.osVersion}; en_US; ${client.device}) gzip`,
-  };
 }

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { browserFingerprint, browserUserAgent, firefoxUserAgent, navigationHeaders, youtubeClient } from "../src/fingerprint";
+import { browserFingerprint, browserUserAgent, firefoxUserAgent, navigationHeaders } from "../src/fingerprint";
 
 const platformToken: Record<string, string> = {
   Linux: "Linux x86_64",
@@ -25,13 +25,6 @@ describe("fingerprint", () => {
     expect(headers["sec-ch-ua"].match(/Google Chrome";v="(\d+)"/)?.[1]).toBe(
       headers["user-agent"].match(/Chrome\/(\d+)\./)?.[1],
     );
-  });
-
-  test("youtube client user-agent embeds its client version", () => {
-    for (let iteration = 0; iteration < 50; iteration += 1) {
-      const client = youtubeClient();
-      expect(client.userAgent).toContain(`youtube/${client.clientVersion}`);
-    }
   });
 
   test("browser and firefox user-agents are well-formed distinct families", () => {

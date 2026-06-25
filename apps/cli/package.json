@@ -1,0 +1,14 @@
+{
+  "name": "@postfetch/cli",
+  "version": "0.2.0",
+  "private": true,
+  "description": "Command-line downloader built on @postfetch/core: postfetch <post-url> writes the media to disk.",
+  "type": "module",
+  "bin": { "postfetch": "src/index.ts" },
+  "scripts": {
+    "start": "bun src/index.ts",
+    "build:bin": "bun build --compile --minify --target=bun-linux-x64-baseline src/index.ts --outfile dist/postfetch",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": { "@postfetch/core": "workspace:*" }
+}
