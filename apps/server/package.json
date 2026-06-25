@@ -1,0 +1,16 @@
+{
+  "name": "@postfetch/server",
+  "version": "0.2.0",
+  "private": true,
+  "description": "Superminimal showcase image: a Bun HTTP server built on @postfetch/core, compiled to a single UPX-compressed binary in a scratch container.",
+  "type": "module",
+  "scripts": {
+    "dev": "bun --watch src/index.ts",
+    "start": "bun src/index.ts",
+    "build:bin": "bun build --compile --minify --target=bun-linux-x64-baseline src/index.ts --outfile dist/postfetch",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@postfetch/core": "workspace:*"
+  }
+}

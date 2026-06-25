@@ -1,0 +1,8 @@
+{
+  "name": "postfetch-template-aws-lambda",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "scripts": { "typecheck": "tsc --noEmit" },
+  "dependencies": { "@postfetch/core": "^0.2.0" }
+}

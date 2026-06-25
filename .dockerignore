@@ -1,5 +1,9 @@
 *
 !bun.lock
 !package.json
-!src
-!tsconfig.json
+!tsconfig.base.json
+!packages
+!apps
+!templates
+**/node_modules
+**/dist

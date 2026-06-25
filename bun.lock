@@ -9,11 +9,81 @@
         "typescript": "6.0.3",
       },
     },
+    "apps/server": {
+      "name": "@postfetch/server",
+      "version": "0.2.0",
+      "dependencies": {
+        "@postfetch/core": "workspace:*",
+      },
+    },
+    "packages/core": {
+      "name": "@postfetch/core",
+      "version": "0.2.0",
+    },
+    "templates/aws-lambda": {
+      "name": "postfetch-template-aws-lambda",
+      "version": "0.2.0",
+      "dependencies": {
+        "@postfetch/core": "^0.2.0",
+      },
+    },
+    "templates/azure-functions": {
+      "name": "postfetch-template-azure-functions",
+      "version": "0.2.0",
+      "dependencies": {
+        "@azure/functions": "^4.5.0",
+        "@postfetch/core": "^0.2.0",
+      },
+    },
+    "templates/bun-server": {
+      "name": "postfetch-template-bun-server",
+      "version": "0.2.0",
+      "dependencies": {
+        "@postfetch/core": "^0.2.0",
+      },
+    },
+    "templates/cli": {
+      "name": "postfetch-template-cli",
+      "version": "0.2.0",
+      "bin": {
+        "postfetch": "src/index.ts",
+      },
+      "dependencies": {
+        "@postfetch/core": "^0.2.0",
+      },
+    },
+    "templates/cloudflare-worker": {
+      "name": "postfetch-template-cloudflare-worker",
+      "version": "0.2.0",
+      "dependencies": {
+        "@postfetch/core": "^0.2.0",
+      },
+    },
   },
   "packages": {
+    "@azure/functions": ["@azure/functions@4.16.1", "", { "dependencies": { "@azure/functions-extensions-base": "0.3.0", "cookie": "^0.7.0" } }, "sha512-A9obwC7IBg4NAmxUfTVfYEd8Xg6Px+o85JRprS3UJZt+GYYzIOmEecnFwTe3rl+aiHDewBk/8fnIVrSjR/fNGQ=="],
+
+    "@azure/functions-extensions-base": ["@azure/functions-extensions-base@0.3.0", "", {}, "sha512-Cux0hLu5ZXlC/Kb+yvJVhRLIdkfFwui2HeT5oGZL00r/GCUUkhGTzRfZUjRN4Bq729mPv3okPucz2z7SMQLStA=="],
+
+    "@postfetch/core": ["@postfetch/core@workspace:packages/core"],
+
+    "@postfetch/server": ["@postfetch/server@workspace:apps/server"],
+
     "@types/node": ["@types/node@25.9.1", "", { "dependencies": { "undici-types": ">=7.24.0 <7.24.7" } }, "sha512-xfrlY7UD5rMJk3ZVJP8BNzS28J36YJg+xp+LPXV1TdWxr8uMH5A860QNxYDGQe/ylDSgjxE52Q9VnO7p75tJxg=="],
 
     "bun-types": ["bun-types@1.3.14", "", { "dependencies": { "@types/node": "*" } }, "sha512-4N0ig0fEomHt5R0KCFWjovxow98rIoRwKolrYdCcknNwMekCXRnWEUvgu5soYV8QXtVsrUD8B95MBOZGPvr6KQ=="],
+
+    "cookie": ["cookie@0.7.2", "", {}, "sha512-yki5XnKuf750l50uGTllt6kKILY4nQ1eNIQatoXEByZ5dWgnKqbnqmTrBE5B4N7lrMJKQ2ytWMiTO2o0v6Ew/w=="],
+
+    "postfetch-template-aws-lambda": ["postfetch-template-aws-lambda@workspace:templates/aws-lambda"],
+
+    "postfetch-template-azure-functions": ["postfetch-template-azure-functions@workspace:templates/azure-functions"],
+
+    "postfetch-template-bun-server": ["postfetch-template-bun-server@workspace:templates/bun-server"],
+
+    "postfetch-template-cli": ["postfetch-template-cli@workspace:templates/cli"],
+
+    "postfetch-template-cloudflare-worker": ["postfetch-template-cloudflare-worker@workspace:templates/cloudflare-worker"],
 
     "typescript": ["typescript@6.0.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-y2TvuxSZPDyQakkFRPZHKFm+KKVqIisdg9/CZwm9ftvKXLP8NRWj38/ODjNbr43SsoXqNuAisEf1GdCxqWcdBw=="],
 
