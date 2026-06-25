@@ -1,8 +1,9 @@
 name: Release
 
-# Publishes @postfetch/core to npm when a v* tag is pushed.
-# Requires an NPM_TOKEN repository secret (an npm automation token for the
-# @postfetch scope). prepublishOnly builds dist (bundled ESM + .d.ts).
+# Publishes @postfetch/core to npm when a v* tag is pushed, via npm Trusted
+# Publishing (OIDC) — no token or secret needed. Requires a trusted publisher
+# configured on the package for this repo + this workflow filename.
+# prepublishOnly builds dist (bundled ESM + .d.ts).
 on:
   push:
     tags:
@@ -11,6 +12,9 @@ on:
 jobs:
   publish:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
     steps:
       - uses: actions/checkout@v6
       - uses: oven-sh/setup-bun@v2
@@ -20,8 +24,7 @@ jobs:
         with:
           node-version: 22
           registry-url: https://registry.npmjs.org
+      - run: npm install -g npm@latest
       - run: bun install --frozen-lockfile
       - run: npm publish --access public
         working-directory: packages/core
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
