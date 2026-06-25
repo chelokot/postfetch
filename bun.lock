@@ -9,6 +9,16 @@
         "typescript": "6.0.3",
       },
     },
+    "apps/cli": {
+      "name": "@postfetch/cli",
+      "version": "0.2.0",
+      "bin": {
+        "postfetch": "src/index.ts",
+      },
+      "dependencies": {
+        "@postfetch/core": "workspace:*",
+      },
+    },
     "apps/server": {
       "name": "@postfetch/server",
       "version": "0.2.0",
@@ -42,16 +52,6 @@
         "@postfetch/core": "^0.2.0",
       },
     },
-    "templates/cli": {
-      "name": "postfetch-template-cli",
-      "version": "0.2.0",
-      "bin": {
-        "postfetch": "src/index.ts",
-      },
-      "dependencies": {
-        "@postfetch/core": "^0.2.0",
-      },
-    },
     "templates/cloudflare-worker": {
       "name": "postfetch-template-cloudflare-worker",
       "version": "0.2.0",
@@ -64,6 +64,8 @@
     "@azure/functions": ["@azure/functions@4.16.1", "", { "dependencies": { "@azure/functions-extensions-base": "0.3.0", "cookie": "^0.7.0" } }, "sha512-A9obwC7IBg4NAmxUfTVfYEd8Xg6Px+o85JRprS3UJZt+GYYzIOmEecnFwTe3rl+aiHDewBk/8fnIVrSjR/fNGQ=="],
 
     "@azure/functions-extensions-base": ["@azure/functions-extensions-base@0.3.0", "", {}, "sha512-Cux0hLu5ZXlC/Kb+yvJVhRLIdkfFwui2HeT5oGZL00r/GCUUkhGTzRfZUjRN4Bq729mPv3okPucz2z7SMQLStA=="],
+
+    "@postfetch/cli": ["@postfetch/cli@workspace:apps/cli"],
 
     "@postfetch/core": ["@postfetch/core@workspace:packages/core"],
 
@@ -80,8 +82,6 @@
     "postfetch-template-azure-functions": ["postfetch-template-azure-functions@workspace:templates/azure-functions"],
 
     "postfetch-template-bun-server": ["postfetch-template-bun-server@workspace:templates/bun-server"],
-
-    "postfetch-template-cli": ["postfetch-template-cli@workspace:templates/cli"],
 
     "postfetch-template-cloudflare-worker": ["postfetch-template-cloudflare-worker@workspace:templates/cloudflare-worker"],
 
