@@ -6,6 +6,13 @@ export type MediaKind = "audio" | "image" | "video";
 
 /** A single resolved media file: a direct URL plus everything needed to fetch and name it. */
 export type MediaItem = {
+  /**
+   * When present, this is a video whose audio is a separate stream: {@link MediaItem.url}
+   * carries the video track and `audio.url` the audio track (DASH/CMAF hands them out
+   * apart). {@link download}, {@link archive} and {@link toResponse} merge the two with
+   * the bundled remuxer; callers that read `url` directly get the silent video.
+   */
+  audio?: { headers: HeadersInit; url: string };
   /** Suggested download filename. */
   filename: string;
   /** Headers required to fetch {@link MediaItem.url} from the CDN. */

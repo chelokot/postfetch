@@ -161,15 +161,39 @@ describe("postfetch", () => {
     expect(result.items[0]).toMatchObject({ kind: "video", mime: "video/mp4", url: "https://v.redd.it/v1/DASH_480.mp4" });
   });
 
-  test("rejects a Reddit video that needs audio muxing (injected fetch)", async () => {
+  test("resolves a Reddit video with audio to a muxed item (injected fetch)", async () => {
     const post = {
       id: "v2",
       is_video: true,
-      secure_media: { reddit_video: { fallback_url: "https://v.redd.it/v2/DASH_480.mp4", has_audio: true } },
+      secure_media: {
+        reddit_video: {
+          fallback_url: "https://v.redd.it/v2/DASH_480.mp4?source=fallback",
+          has_audio: true,
+          dash_url: "https://v.redd.it/v2/DASHPlaylist.mpd?a=TOKEN",
+        },
+      },
     };
-    await expect(
-      postfetch("https://www.reddit.com/r/x/comments/v2/clip/", { fetch: stubFetch(redditRoutes(post)) }),
-    ).rejects.toThrow(/muxing/);
+    const manifest = `<MPD><Period>
+      <AdaptationSet contentType="video" mimeType="video/mp4">
+        <Representation width="480" height="854" bandwidth="1298799"><BaseURL>DASH_480.mp4</BaseURL></Representation>
+        <Representation width="1280" height="720" bandwidth="2484740"><BaseURL>DASH_720.mp4</BaseURL></Representation>
+      </AdaptationSet>
+      <AdaptationSet contentType="audio" mimeType="audio/mp4">
+        <Representation bandwidth="134352"><BaseURL>DASH_AUDIO_128.mp4</BaseURL></Representation>
+      </AdaptationSet>
+    </Period></MPD>`;
+    const routes = {
+      ...redditRoutes(post),
+      "https://v.redd.it/v2/DASHPlaylist.mpd": () => new Response(manifest),
+    };
+    const result = await postfetch("https://www.reddit.com/r/x/comments/v2/clip/", { fetch: stubFetch(routes) });
+
+    expect(result.items[0]).toMatchObject({
+      kind: "video",
+      mime: "video/mp4",
+      url: "https://v.redd.it/v2/DASH_480.mp4?a=TOKEN",
+      audio: { url: "https://v.redd.it/v2/DASH_AUDIO_128.mp4?a=TOKEN" },
+    });
   });
 
   function pinterestRoutes(pin: object): Record<string, () => Response> {

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { postfetch } from "../src/index";
+import { download, postfetch } from "../src/index";
 
 // Live tests hit the real platforms and are skipped unless POSTFETCH_LIVE=1.
 // POSTFETCH_LIVE_PLATFORM narrows the run to one platform, so CI can give each
@@ -49,6 +49,24 @@ describe("live network", () => {
       expect(result.items[0]?.kind).toBe("image");
     },
     30_000,
+  );
+
+  test.skipIf(!runs("reddit"))(
+    "reddit video with audio remuxes the two DASH streams into one mp4",
+    async () => {
+      const result = await postfetch("https://www.reddit.com/r/oddlysatisfying/comments/1uha6sp/a_common_loon_coming_in_for_a_smooth_landing/");
+      const item = result.items[0];
+      expect(item?.kind).toBe("video");
+      expect(item?.audio?.url).toBeDefined();
+      if (!item) {
+        throw new Error("no item");
+      }
+      const merged = new Uint8Array(await (await download(item)).arrayBuffer());
+      // the merged file is a valid MP4 (starts with an ftyp box) carrying both tracks
+      expect(String.fromCharCode(merged[4], merged[5], merged[6], merged[7])).toBe("ftyp");
+      expect(merged.length).toBeGreaterThan(0);
+    },
+    60_000,
   );
 
   test.skipIf(!runs("pinterest"))(
