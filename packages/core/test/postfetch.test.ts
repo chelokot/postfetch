@@ -21,6 +21,8 @@ describe("detect", () => {
     expect(detect("https://x.com/i/status/123")).toBe("twitter");
     expect(detect("https://www.reddit.com/r/aww/comments/abc/title/")).toBe("reddit");
     expect(detect("https://redd.it/abc")).toBe("reddit");
+    expect(detect("https://www.pinterest.com/pin/12345/")).toBe("pinterest");
+    expect(detect("https://pin.it/abcdef")).toBe("pinterest");
   });
 
   test("rejects unsupported hosts", () => {
@@ -165,6 +167,51 @@ describe("postfetch", () => {
     };
     await expect(
       postfetch("https://www.reddit.com/r/x/comments/v2/clip/", { fetch: stubFetch(redditRoutes(post)) }),
+    ).rejects.toThrow(/muxing/);
+  });
+
+  function pinterestRoutes(pin: object): Record<string, () => Response> {
+    return {
+      "https://www.pinterest.com/resource/PinResource/get/": () =>
+        new Response(JSON.stringify({ resource_response: { data: pin } }), {
+          headers: { "content-type": "application/json" },
+        }),
+    };
+  }
+
+  test("resolves a Pinterest video pin to its progressive mp4 (injected fetch)", async () => {
+    const pin = {
+      id: "123",
+      videos: {
+        video_list: {
+          V_720P: { url: "https://v1.pinimg.com/videos/x/720p/a.mp4", width: 720, height: 1280 },
+          V_HLSV4: { url: "https://v1.pinimg.com/videos/x/hls/a.m3u8", width: 720, height: 1280 },
+        },
+      },
+    };
+    const result = await postfetch("https://www.pinterest.com/pin/123/", { fetch: stubFetch(pinterestRoutes(pin)) });
+
+    expect(result.platform).toBe("pinterest");
+    expect(result.items[0]).toMatchObject({ kind: "video", mime: "video/mp4", url: "https://v1.pinimg.com/videos/x/720p/a.mp4" });
+  });
+
+  test("resolves a Pinterest image pin to its original (injected fetch)", async () => {
+    const pin = { id: "456", images: { orig: { url: "https://i.pinimg.com/originals/aa/bb.jpg", width: 480, height: 360 } } };
+    const result = await postfetch("https://www.pinterest.com/pin/456/", { fetch: stubFetch(pinterestRoutes(pin)) });
+
+    expect(result.items[0]).toMatchObject({ kind: "image", mime: "image/jpeg", url: "https://i.pinimg.com/originals/aa/bb.jpg" });
+  });
+
+  test("rejects a Pinterest idea pin whose video is HLS-only (injected fetch)", async () => {
+    const pin = {
+      id: "789",
+      images: { orig: { url: "https://i.pinimg.com/originals/cover.jpg" } },
+      story_pin_data: {
+        pages: [{ blocks: [{ block_type: 3, video: { video_list: { V_HLSV3_MOBILE: { url: "https://v1.pinimg.com/videos/x/hls/b.m3u8" } } } }] }],
+      },
+    };
+    await expect(
+      postfetch("https://www.pinterest.com/pin/789/", { fetch: stubFetch(pinterestRoutes(pin)) }),
     ).rejects.toThrow(/muxing/);
   });
 });

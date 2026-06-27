@@ -1,6 +1,7 @@
 import { asUrl, createNet, PostfetchError, type Platform, type PostfetchResult } from "./internal";
 import { resolveFacebook } from "./facebook";
 import { resolveInstagram } from "./instagram";
+import { resolvePinterest } from "./pinterest";
 import { resolveReddit } from "./reddit";
 import { resolveTiktok } from "./tiktok";
 import { resolveTwitter } from "./twitter";
@@ -50,6 +51,8 @@ export async function postfetch(url: string, options: PostfetchOptions = {}): Pr
       return resolveFacebook(context);
     case "instagram":
       return resolveInstagram(context);
+    case "pinterest":
+      return resolvePinterest(context);
     case "reddit":
       return resolveReddit(context);
     case "tiktok":
@@ -76,6 +79,9 @@ export function detect(url: string): Platform {
   if (host.includes("instagram.com")) {
     return "instagram";
   }
+  if (host.includes("pinterest.") || host === "pin.it") {
+    return "pinterest";
+  }
   if (host === "reddit.com" || host.endsWith(".reddit.com") || host === "redd.it") {
     return "reddit";
   }
@@ -88,5 +94,5 @@ export function detect(url: string): Platform {
   if (host === "x.com" || host.endsWith(".x.com") || host.includes("twitter.com")) {
     return "twitter";
   }
-  throw new PostfetchError(400, "only Facebook, Instagram, Reddit, TikTok, X and YouTube URLs are supported");
+  throw new PostfetchError(400, "only Facebook, Instagram, Pinterest, Reddit, TikTok, X and YouTube URLs are supported");
 }
