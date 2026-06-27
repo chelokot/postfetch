@@ -1,7 +1,7 @@
 {
   "name": "@postfetch/core",
   "version": "0.2.4",
-  "description": "Zero-dependency typed core that turns Facebook, Instagram, Pinterest, Reddit, TikTok, X and YouTube post URLs into media files.",
+  "description": "Zero-dependency typed core that turns Facebook, Instagram, Pinterest, Reddit, SoundCloud, TikTok, X and YouTube post URLs into media files.",
   "license": "MIT",
   "type": "module",
   "exports": {
@@ -33,6 +33,7 @@
     "media",
     "pinterest",
     "reddit",
+    "soundcloud",
     "tiktok",
     "twitter",
     "youtube",
