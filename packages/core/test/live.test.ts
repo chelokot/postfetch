@@ -51,6 +51,17 @@ describe("live network", () => {
     30_000,
   );
 
+  test.skipIf(!runs("pinterest"))(
+    "pinterest video pin resolves to a progressive mp4",
+    async () => {
+      const result = await postfetch("https://www.pinterest.com/pin/3025924746345838/");
+      expect(result.platform).toBe("pinterest");
+      expect(result.items[0]?.kind).toBe("video");
+      expect(result.items[0]?.mime).toBe("video/mp4");
+    },
+    30_000,
+  );
+
   test.skipIf(!runs("tiktok"))(
     "tiktok resolves a shortlink to a video",
     async () => {
