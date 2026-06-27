@@ -117,6 +117,40 @@ describe("postfetch", () => {
     expect(result.items[0]).toMatchObject({ kind: "video", url: "https://cdn.test/yt.mp4" });
   });
 
+  test("resolves a YouTube video to a muxed adaptive H.264 + AAC pair (injected fetch)", async () => {
+    const watch = `<html>"visitorData":"VD123","jsUrl":"/s/player/abc/base.js"</html>`;
+    const playerJs = "var meta={signatureTimestamp:20123};";
+    const player = {
+      playabilityStatus: { status: "OK" },
+      streamingData: {
+        formats: [{ url: "https://cdn.test/yt360.mp4", mimeType: "video/mp4; codecs=avc1", height: 360 }],
+        adaptiveFormats: [
+          { url: "https://cdn.test/v480.mp4", mimeType: 'video/mp4; codecs="avc1.4d401f"', width: 854, height: 480 },
+          { url: "https://cdn.test/v1080.mp4", mimeType: 'video/mp4; codecs="avc1.640028"', width: 1920, height: 1080 },
+          { url: "https://cdn.test/v2160.webm", mimeType: 'video/webm; codecs="vp9"', width: 3840, height: 2160 },
+          { url: "https://cdn.test/a128.m4a", mimeType: 'audio/mp4; codecs="mp4a.40.2"', bitrate: 128000 },
+          { url: "https://cdn.test/a256.m4a", mimeType: 'audio/mp4; codecs="mp4a.40.2"', bitrate: 256000 },
+        ],
+      },
+      videoDetails: { title: "Clip" },
+    };
+    const result = await postfetch("https://www.youtube.com/watch?v=dQw4w9WgXcQ", {
+      preferredWidth: 1920,
+      fetch: stubFetch({
+        "https://www.youtube.com/watch": () => new Response(watch),
+        "https://www.youtube.com/s/player/": () => new Response(playerJs),
+        "https://www.youtube.com/youtubei/v1/player": () =>
+          new Response(JSON.stringify(player), { headers: { "content-type": "application/json" } }),
+      }),
+    });
+
+    expect(result.items[0]).toMatchObject({
+      kind: "video",
+      url: "https://cdn.test/v1080.mp4",
+      audio: { url: "https://cdn.test/a256.m4a" },
+    });
+  });
+
   function redditRoutes(post: object): Record<string, () => Response> {
     return {
       "https://www.reddit.com/api/v1/access_token": () =>

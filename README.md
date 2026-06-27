@@ -94,7 +94,7 @@ A single post is written as one file, carousels and slideshows as a `.zip`; the 
 | TikTok | image / slideshow post | `zip` of images (+ audio) |
 | Instagram | reel, video, or photo | `video/mp4` or `image/jpeg` |
 | Instagram | carousel | `zip` of images / videos |
-| YouTube | `watch`, `shorts`, `live`, `embed`, `youtu.be` | progressive `video/mp4` |
+| YouTube | `watch`, `shorts`, `live`, `embed`, `youtu.be` | up to 1080p `video/mp4` (audio remuxed) |
 | Facebook | reel, video, `/share/v/…`, `fb.watch` | `video/mp4` |
 | X (Twitter) | tweet / status with video, gif, or photos | `video/mp4`, `image/jpeg`, or `zip` |
 | Reddit | image or gallery post | `image/jpeg` or `zip` of images |
@@ -103,7 +103,7 @@ A single post is written as one file, carousels and slideshows as a `.zip`; the 
 | Pinterest | video pin (progressive rendition) | `video/mp4` |
 | SoundCloud | track with a progressive stream | `audio/mpeg` |
 
-A Reddit video whose audio is a separate DASH rendition is fetched as both streams and **remuxed into one MP4 in-process** at download time — recombining the fragments at the box level, no `ffmpeg` ([`remux.ts`](packages/core/src/remux.ts)). YouTube still uses a direct Innertube player request for a progressive MP4 (it does not yet merge adaptive video+audio). Sources that expose only HLS — a Pinterest idea pin, or a SoundCloud track without a progressive stream — still need muxing and are reported as such rather than returned as a static cover or silent.
+YouTube and Reddit hand out HD video and audio as separate DASH streams; both are fetched and **remuxed into one MP4 in-process** at download time — recombining the fragments at the box level, no `ffmpeg` ([`remux.ts`](packages/core/src/remux.ts)). YouTube picks H.264 video close to the preferred width (so the default stays modest, not 4K) plus the best AAC track. Sources that expose only HLS — a Pinterest idea pin, or a SoundCloud track without a progressive stream — still need a segment demuxer and are reported as such rather than returned as a static cover or silent.
 
 ## Staying unblocked
 
