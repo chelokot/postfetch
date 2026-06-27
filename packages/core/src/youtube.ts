@@ -47,21 +47,70 @@ export async function resolveYoutube(input: ResolveContext): Promise<PostfetchRe
     const reason = object(payload) && object(payload.playabilityStatus) ? string(payload.playabilityStatus.reason) : null;
     throw new Error(reason ?? "YouTube video unavailable");
   }
-  const format = selectFormat(payload);
-  if (!format) {
-    throw new Error("YouTube progressive mp4 not found");
+  const streams = selectStreams(payload, input.preferredWidth);
+  if (!streams) {
+    throw new Error("YouTube mp4 stream not found");
   }
   const title = object(payload) && object(payload.videoDetails) ? string(payload.videoDetails.title) : null;
+  const headers = { "user-agent": androidVrClient.userAgent };
   const media: MediaItem = {
     filename: filename(`youtube_${title ?? id}_${id}.mp4`),
-    headers: { "user-agent": androidVrClient.userAgent },
+    headers,
     id,
     kind: "video",
     mime: "video/mp4",
     platform: "youtube",
-    url: format,
+    url: streams.video,
+    ...(streams.audio ? { audio: { headers, url: streams.audio } } : {}),
   };
   return { archiveFilename: filename(`youtube_${id}.zip`), id, items: [media], platform: "youtube" };
+}
+
+// Adaptive H.264 video and AAC audio go up to 1080p with direct URLs; merging them
+// beats the progressive formats (capped at 360-720p). The progressive single-file
+// stream is the fallback when a separate-stream pair is unavailable.
+function selectStreams(payload: unknown, preferredWidth: number): { video: string; audio: string | null } | null {
+  const adaptive = adaptiveFormats(payload);
+  const video = bestVideo(adaptive, preferredWidth);
+  const audio = bestAudio(adaptive);
+  if (video && audio) {
+    return { video, audio };
+  }
+  const progressive = selectFormat(payload);
+  return progressive ? { video: progressive, audio: null } : null;
+}
+
+function adaptiveFormats(payload: unknown): Json[] {
+  const root = object(payload) ? payload : null;
+  const streaming = root && object(root.streamingData) ? root.streamingData : null;
+  return streaming && Array.isArray(streaming.adaptiveFormats) ? streaming.adaptiveFormats.filter(object) : [];
+}
+
+function bestVideo(formats: Json[], preferredWidth: number): string | null {
+  const candidates = formats.filter((format) => {
+    const mimeType = string(format.mimeType);
+    return Boolean(string(format.url)) && mimeType?.startsWith("video/mp4") === true && mimeType.includes("avc1");
+  });
+  const best = candidates.reduce<Json | null>((current, format) => {
+    if (!current) {
+      return format;
+    }
+    const width = number(format.width) ?? 0;
+    const currentWidth = number(current.width) ?? 0;
+    return Math.abs(width - preferredWidth) < Math.abs(currentWidth - preferredWidth) ? format : current;
+  }, null);
+  return best ? string(best.url) : null;
+}
+
+function bestAudio(formats: Json[]): string | null {
+  const candidates = formats.filter((format) => Boolean(string(format.url)) && string(format.mimeType)?.startsWith("audio/mp4") === true);
+  const best = candidates.reduce<Json | null>((current, format) => {
+    if (!current) {
+      return format;
+    }
+    return (number(format.bitrate) ?? 0) > (number(current.bitrate) ?? 0) ? format : current;
+  }, null);
+  return best ? string(best.url) : null;
 }
 
 function playerBody(id: string, session: YoutubeSession): Json {
