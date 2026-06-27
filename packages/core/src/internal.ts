@@ -1,5 +1,5 @@
 /** A platform that {@link postfetch} can resolve. */
-export type Platform = "facebook" | "instagram" | "tiktok" | "twitter" | "youtube";
+export type Platform = "facebook" | "instagram" | "reddit" | "tiktok" | "twitter" | "youtube";
 
 /** The kind of a {@link MediaItem}. */
 export type MediaKind = "audio" | "image" | "video";

@@ -19,6 +19,8 @@ describe("detect", () => {
     expect(detect("https://youtu.be/dQw4w9WgXcQ")).toBe("youtube");
     expect(detect("https://www.facebook.com/share/v/ABC/")).toBe("facebook");
     expect(detect("https://x.com/i/status/123")).toBe("twitter");
+    expect(detect("https://www.reddit.com/r/aww/comments/abc/title/")).toBe("reddit");
+    expect(detect("https://redd.it/abc")).toBe("reddit");
   });
 
   test("rejects unsupported hosts", () => {
@@ -109,5 +111,60 @@ describe("postfetch", () => {
 
     expect(result.platform).toBe("youtube");
     expect(result.items[0]).toMatchObject({ kind: "video", url: "https://cdn.test/yt.mp4" });
+  });
+
+  function redditRoutes(post: object): Record<string, () => Response> {
+    return {
+      "https://www.reddit.com/api/v1/access_token": () =>
+        new Response(JSON.stringify({ access_token: "token" }), { headers: { "content-type": "application/json" } }),
+      "https://oauth.reddit.com/comments/": () =>
+        new Response(JSON.stringify([{ data: { children: [{ data: post }] } }]), {
+          headers: { "content-type": "application/json" },
+        }),
+    };
+  }
+
+  test("resolves a Reddit gallery into ordered images (injected fetch)", async () => {
+    const post = {
+      id: "g1",
+      is_gallery: true,
+      gallery_data: { items: [{ media_id: "m1" }, { media_id: "m2" }] },
+      media_metadata: {
+        m1: { status: "valid", m: "image/jpg", s: { u: "https://preview.redd.it/m1.jpg?s=a" } },
+        m2: { status: "valid", m: "image/png", s: { u: "https://preview.redd.it/m2.png?s=b" } },
+      },
+    };
+    const result = await postfetch("https://www.reddit.com/r/aww/comments/g1/title/", {
+      fetch: stubFetch(redditRoutes(post)),
+    });
+
+    expect(result.platform).toBe("reddit");
+    expect(result.items).toHaveLength(2);
+    expect(result.items[0]).toMatchObject({ kind: "image", mime: "image/jpeg", url: "https://preview.redd.it/m1.jpg?s=a" });
+    expect(result.items[1]).toMatchObject({ kind: "image", mime: "image/png", url: "https://preview.redd.it/m2.png?s=b" });
+  });
+
+  test("resolves a silent Reddit video to its fallback stream (injected fetch)", async () => {
+    const post = {
+      id: "v1",
+      is_video: true,
+      secure_media: { reddit_video: { fallback_url: "https://v.redd.it/v1/DASH_480.mp4", has_audio: false } },
+    };
+    const result = await postfetch("https://www.reddit.com/r/x/comments/v1/clip/", {
+      fetch: stubFetch(redditRoutes(post)),
+    });
+
+    expect(result.items[0]).toMatchObject({ kind: "video", mime: "video/mp4", url: "https://v.redd.it/v1/DASH_480.mp4" });
+  });
+
+  test("rejects a Reddit video that needs audio muxing (injected fetch)", async () => {
+    const post = {
+      id: "v2",
+      is_video: true,
+      secure_media: { reddit_video: { fallback_url: "https://v.redd.it/v2/DASH_480.mp4", has_audio: true } },
+    };
+    await expect(
+      postfetch("https://www.reddit.com/r/x/comments/v2/clip/", { fetch: stubFetch(redditRoutes(post)) }),
+    ).rejects.toThrow(/muxing/);
   });
 });
