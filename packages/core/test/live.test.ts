@@ -41,6 +41,16 @@ describe("live network", () => {
     60_000,
   );
 
+  test.skipIf(!runs("reddit"))(
+    "reddit gallery resolves to ordered images",
+    async () => {
+      const result = await postfetch("https://www.reddit.com/r/pics/comments/1ugzn9p/seen_in_the_uk/");
+      expect(result.platform).toBe("reddit");
+      expect(result.items[0]?.kind).toBe("image");
+    },
+    30_000,
+  );
+
   test.skipIf(!runs("tiktok"))(
     "tiktok resolves a shortlink to a video",
     async () => {
