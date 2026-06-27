@@ -23,6 +23,8 @@ describe("detect", () => {
     expect(detect("https://redd.it/abc")).toBe("reddit");
     expect(detect("https://www.pinterest.com/pin/12345/")).toBe("pinterest");
     expect(detect("https://pin.it/abcdef")).toBe("pinterest");
+    expect(detect("https://soundcloud.com/artist/track")).toBe("soundcloud");
+    expect(detect("https://on.soundcloud.com/abc")).toBe("soundcloud");
   });
 
   test("rejects unsupported hosts", () => {
@@ -212,6 +214,45 @@ describe("postfetch", () => {
     };
     await expect(
       postfetch("https://www.pinterest.com/pin/789/", { fetch: stubFetch(pinterestRoutes(pin)) }),
+    ).rejects.toThrow(/muxing/);
+  });
+
+  function soundcloudRoutes(transcodings: unknown[]): Record<string, () => Response> {
+    const json = (body: unknown) => () =>
+      new Response(JSON.stringify(body), { headers: { "content-type": "application/json" } });
+    return {
+      "https://soundcloud.com/": () =>
+        new Response(`<script crossorigin src="https://a-v2.sndcdn.com/assets/app-9.js"></script>`),
+      "https://a-v2.sndcdn.com/assets/": () => new Response(`var o={client_id:"ABCDEFGHIJKLMNOPQRSTUV"};`),
+      "https://api-v2.soundcloud.com/resolve": json({ kind: "track", id: 123, title: "Test Track", media: { transcodings } }),
+      "https://api-v2.soundcloud.com/media/": json({ url: "https://cf-media.sndcdn.com/x.128.mp3?Policy=y" }),
+    };
+  }
+
+  test("resolves a SoundCloud track to its progressive mp3 (injected fetch)", async () => {
+    const result = await postfetch("https://soundcloud.com/artist/track", {
+      fetch: stubFetch(
+        soundcloudRoutes([
+          { format: { protocol: "hls", mime_type: "audio/mpeg" }, url: "https://api-v2.soundcloud.com/media/t/h/stream/hls" },
+          { format: { protocol: "progressive", mime_type: "audio/mpeg" }, url: "https://api-v2.soundcloud.com/media/t/p/stream/progressive" },
+        ]),
+      ),
+    });
+
+    expect(result.platform).toBe("soundcloud");
+    expect(result.id).toBe("123");
+    expect(result.items[0]).toMatchObject({ kind: "audio", mime: "audio/mpeg", url: "https://cf-media.sndcdn.com/x.128.mp3?Policy=y" });
+  });
+
+  test("rejects a SoundCloud track that is HLS-only (injected fetch)", async () => {
+    await expect(
+      postfetch("https://soundcloud.com/artist/track", {
+        fetch: stubFetch(
+          soundcloudRoutes([
+            { format: { protocol: "hls", mime_type: "audio/mpeg" }, url: "https://api-v2.soundcloud.com/media/t/h/stream/hls" },
+          ]),
+        ),
+      }),
     ).rejects.toThrow(/muxing/);
   });
 });

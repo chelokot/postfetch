@@ -42,7 +42,7 @@ if (result.items.length === 1) {
 | Export | Signature | Notes |
 | --- | --- | --- |
 | `postfetch` | `(url, options?) => Promise<PostfetchResult>` | Detects the platform and resolves its media. |
-| `detect` | `(url) => Platform` | `"facebook" \| "instagram" \| "pinterest" \| "reddit" \| "tiktok" \| "twitter" \| "youtube"`; throws on anything else. |
+| `detect` | `(url) => Platform` | `"facebook" \| "instagram" \| "pinterest" \| "reddit" \| "soundcloud" \| "tiktok" \| "twitter" \| "youtube"`; throws on anything else. |
 | `download` | `(item, options?) => Promise<Response>` | Fetches one item from its CDN with the right headers. |
 | `archive` | `(result, options?) => Promise<{ bytes, filename, mime }>` | Zips every item (store mode, in-process). |
 | `toResponse` | `(result, options?) => Promise<Response>` | One item → streamed file; many → zip. Used by the server and templates. |
@@ -101,8 +101,9 @@ A single post is written as one file, carousels and slideshows as a `.zip`; the 
 | Reddit | video post (no separate audio track) | `video/mp4` |
 | Pinterest | image pin | `image/jpeg` |
 | Pinterest | video pin (progressive rendition) | `video/mp4` |
+| SoundCloud | track with a progressive stream | `audio/mpeg` |
 
-YouTube uses a direct Innertube player request and picks a progressive MP4. It does **not** merge adaptive video+audio, so it is not a full `yt-dlp` replacement. For the same reason, a Reddit video whose audio is a separate DASH rendition, and a Pinterest idea pin whose only renditions are HLS, are reported as needing muxing rather than returned silent or as a static cover.
+YouTube uses a direct Innertube player request and picks a progressive MP4. It does **not** merge adaptive video+audio, so it is not a full `yt-dlp` replacement. For the same reason, a Reddit video whose audio is a separate DASH rendition, a Pinterest idea pin whose only renditions are HLS, and a SoundCloud track exposing only an HLS stream are reported as needing muxing rather than returned silent or as a static cover.
 
 ## Staying unblocked
 

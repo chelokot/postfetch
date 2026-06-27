@@ -62,6 +62,17 @@ describe("live network", () => {
     30_000,
   );
 
+  test.skipIf(!runs("soundcloud"))(
+    "soundcloud track resolves to a progressive mp3",
+    async () => {
+      const result = await postfetch("https://soundcloud.com/alexxlofi/khong-buong-lofi-ver-hngle-x");
+      expect(result.platform).toBe("soundcloud");
+      expect(result.items[0]?.kind).toBe("audio");
+      expect(result.items[0]?.mime).toBe("audio/mpeg");
+    },
+    30_000,
+  );
+
   test.skipIf(!runs("tiktok"))(
     "tiktok resolves a shortlink to a video",
     async () => {
