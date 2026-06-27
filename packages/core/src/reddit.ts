@@ -21,7 +21,7 @@ export async function resolveReddit(input: ResolveContext): Promise<PostfetchRes
   const id = await postId(input.net, input.url);
   const token = await appToken(input.net);
   const post = await fetchPost(input.net, token, id);
-  const items = mediaItems(post, id);
+  const items = await mediaItems(input, post, id);
   if (items.length === 0) {
     throw new Error("Reddit media not found");
   }
@@ -91,21 +91,21 @@ async function fetchPost(net: Net, token: string, id: string): Promise<Json> {
   return post;
 }
 
-function mediaItems(post: Json, id: string): MediaItem[] {
-  const own = extract(post, id);
+async function mediaItems(input: ResolveContext, post: Json, id: string): Promise<MediaItem[]> {
+  const own = await extract(input, post, id);
   if (own.length > 0) {
     return own;
   }
   const parents = Array.isArray(post.crosspost_parent_list) ? post.crosspost_parent_list.filter(object) : [];
-  return parents[0] ? extract(parents[0], id) : [];
+  return parents[0] ? extract(input, parents[0], id) : [];
 }
 
-function extract(post: Json, id: string): MediaItem[] {
+async function extract(input: ResolveContext, post: Json, id: string): Promise<MediaItem[]> {
   const gallery = galleryItems(post, id);
   if (gallery.length > 0) {
     return gallery;
   }
-  const video = videoItems(post, id);
+  const video = await videoItems(input, post, id);
   if (video.length > 0) {
     return video;
   }
@@ -132,19 +132,100 @@ function galleryItems(post: Json, id: string): MediaItem[] {
   });
 }
 
-function videoItems(post: Json, id: string): MediaItem[] {
+type Rendition = { width: number | null; bandwidth: number; base: string };
+
+async function videoItems(input: ResolveContext, post: Json, id: string): Promise<MediaItem[]> {
   const media = redditVideo(post);
   const fallback = media ? string(media.fallback_url) : null;
   if (!media || !fallback) {
     return [];
   }
-  if (media.has_audio === true) {
-    // The fallback stream is video-only; reddit serves audio as a separate DASH
-    // rendition, so a complete file needs the muxer. Until then, defer to the
-    // fallback downloader rather than return a silent video.
-    throw new Error("Reddit video has a separate audio track (muxing required)");
+  if (media.has_audio !== true) {
+    return [mediaItem(id, null, "video", "video/mp4", fallback)];
   }
-  return [mediaItem(id, null, "video", "video/mp4", fallback)];
+  // The fallback stream is video-only; reddit keeps audio in a separate DASH
+  // rendition, so a complete file is the video and audio streams merged.
+  const dashUrl = string(media.dash_url);
+  const streams = dashUrl ? await dashStreams(input.net, dashUrl, input.preferredWidth) : null;
+  if (!streams) {
+    throw new Error("Reddit DASH manifest unavailable for muxing");
+  }
+  return [muxedVideoItem(id, streams.video, streams.audio)];
+}
+
+async function dashStreams(net: Net, dashUrl: string, preferredWidth: number): Promise<{ video: string; audio: string } | null> {
+  const response = await net(dashUrl, { headers: { "user-agent": browserUserAgent() } });
+  if (!response.ok) {
+    return null;
+  }
+  const manifest = await response.text();
+  const base = dashUrl.slice(0, dashUrl.lastIndexOf("/") + 1);
+  const query = dashUrl.includes("?") ? dashUrl.slice(dashUrl.indexOf("?")) : "";
+  const video = videoRendition(manifest, preferredWidth);
+  const audio = audioRendition(manifest);
+  if (!video || !audio) {
+    return null;
+  }
+  return { video: `${base}${video}${query}`, audio: `${base}${audio}${query}` };
+}
+
+function videoRendition(manifest: string, preferredWidth: number): string | null {
+  const renditions = renditionsOf(manifest, false);
+  const sized = renditions.filter((rendition) => rendition.width !== null);
+  const pool = sized.length > 0 ? sized : renditions;
+  const best = pool.reduce<Rendition | null>((current, rendition) => {
+    if (!current) {
+      return rendition;
+    }
+    if (rendition.width !== null && current.width !== null) {
+      return Math.abs(rendition.width - preferredWidth) < Math.abs(current.width - preferredWidth) ? rendition : current;
+    }
+    return rendition.bandwidth > current.bandwidth ? rendition : current;
+  }, null);
+  return best ? best.base : null;
+}
+
+function audioRendition(manifest: string): string | null {
+  const best = renditionsOf(manifest, true).reduce<Rendition | null>(
+    (current, rendition) => (!current || rendition.bandwidth > current.bandwidth ? rendition : current),
+    null,
+  );
+  return best ? best.base : null;
+}
+
+function renditionsOf(manifest: string, audio: boolean): Rendition[] {
+  return manifest
+    .split("<AdaptationSet")
+    .slice(1)
+    .filter((chunk) => isAudioSet(chunk) === audio)
+    .flatMap((chunk) =>
+      [...chunk.matchAll(/<Representation\b([^>]*)>([\s\S]*?)<\/Representation>/g)].flatMap((match) => {
+        const segment = match[2].match(/<BaseURL>([^<]+)<\/BaseURL>/)?.[1];
+        if (!segment) {
+          return [];
+        }
+        const width = match[1].match(/(?:^|[^a-zA-Z])width="(\d+)"/)?.[1];
+        return [{ width: width ? Number(width) : null, bandwidth: Number(match[1].match(/bandwidth="(\d+)"/)?.[1] ?? 0), base: segment }];
+      }),
+    );
+}
+
+function isAudioSet(chunk: string): boolean {
+  const head = chunk.slice(0, chunk.indexOf(">"));
+  return /contentType="audio"/.test(head) || /mimeType="audio/.test(head);
+}
+
+function muxedVideoItem(id: string, videoUrl: string, audioUrl: string): MediaItem {
+  return {
+    audio: { headers: { "user-agent": browserUserAgent() }, url: audioUrl },
+    filename: filename(`reddit_${id}.mp4`),
+    headers: { "user-agent": browserUserAgent() },
+    id,
+    kind: "video",
+    mime: "video/mp4",
+    platform: "reddit",
+    url: videoUrl,
+  };
 }
 
 function redditVideo(post: Json): Json | null {

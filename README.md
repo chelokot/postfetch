@@ -2,7 +2,7 @@
 
 **Turn social post URLs into media files.** A zero-dependency typed core, a superminimal showcase Bun image, and deploy templates.
 
-Send one URL, get back the media. Reels and videos come back as `video/mp4`, photos as `image/jpeg`, carousels and slideshows as a `zip`. No browser automation, no `yt-dlp`, no `ffmpeg`, no cookies — just the small Cobalt-style extraction paths needed for public posts, written by hand and fully typed.
+Send one URL, get back the media. Reels and videos come back as `video/mp4`, photos as `image/jpeg`, carousels and slideshows as a `zip`. No browser automation, no `yt-dlp`, no `ffmpeg`, no cookies — just the small Cobalt-style extraction paths needed for public posts, written by hand and fully typed. When a platform splits a video into separate DASH audio and video streams, they are remuxed into a single MP4 in-process — still no `ffmpeg`.
 
 ## What's in the box
 
@@ -98,12 +98,12 @@ A single post is written as one file, carousels and slideshows as a `.zip`; the 
 | Facebook | reel, video, `/share/v/…`, `fb.watch` | `video/mp4` |
 | X (Twitter) | tweet / status with video, gif, or photos | `video/mp4`, `image/jpeg`, or `zip` |
 | Reddit | image or gallery post | `image/jpeg` or `zip` of images |
-| Reddit | video post (no separate audio track) | `video/mp4` |
+| Reddit | video post (audio remuxed in-process) | `video/mp4` |
 | Pinterest | image pin | `image/jpeg` |
 | Pinterest | video pin (progressive rendition) | `video/mp4` |
 | SoundCloud | track with a progressive stream | `audio/mpeg` |
 
-YouTube uses a direct Innertube player request and picks a progressive MP4. It does **not** merge adaptive video+audio, so it is not a full `yt-dlp` replacement. For the same reason, a Reddit video whose audio is a separate DASH rendition, a Pinterest idea pin whose only renditions are HLS, and a SoundCloud track exposing only an HLS stream are reported as needing muxing rather than returned silent or as a static cover.
+A Reddit video whose audio is a separate DASH rendition is fetched as both streams and **remuxed into one MP4 in-process** at download time — recombining the fragments at the box level, no `ffmpeg` ([`remux.ts`](packages/core/src/remux.ts)). YouTube still uses a direct Innertube player request for a progressive MP4 (it does not yet merge adaptive video+audio). Sources that expose only HLS — a Pinterest idea pin, or a SoundCloud track without a progressive stream — still need muxing and are reported as such rather than returned as a static cover or silent.
 
 ## Staying unblocked
 
@@ -135,6 +135,7 @@ CI runs the offline checks and the container build on every push, plus a non-gat
 
 - TypeScript + Bun, zero runtime dependencies in the core.
 - No browser automation, no `yt-dlp` / `youtubei.js` / `ffmpeg` / Express / Axios / archive libraries.
+- Fragmented-MP4 remuxing (DASH video+audio → one MP4) done by hand at the box level — no `ffmpeg`.
 - No env vars, no platform cookies.
 - Hand-written Cobalt-style extraction for public posts; zips built in-process in store mode.
 

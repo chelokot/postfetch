@@ -1,4 +1,5 @@
-import { createNet, PostfetchError, type MediaItem, type PostfetchResult } from "./internal";
+import { createNet, PostfetchError, type MediaItem, type Net, type PostfetchResult } from "./internal";
+import { mergeAudioVideo } from "./remux";
 import { zip } from "./zip";
 
 /** Options for {@link download}, {@link archive} and {@link toResponse}. */
@@ -18,11 +19,13 @@ export type Archive = {
 };
 
 /**
- * Fetch a single media item from its CDN with the headers it requires.
+ * Fetch a single media item, ready to stream or buffer. A plain item streams
+ * straight from its CDN; a muxed item (one with {@link MediaItem.audio}) is
+ * downloaded as two streams and merged in-process, so its body is buffered.
  *
  * @param item A {@link MediaItem} from a {@link PostfetchResult}.
  * @param options See {@link DownloadOptions}.
- * @returns The upstream `Response`, ready to stream or buffer.
+ * @returns The upstream `Response`, or a buffered `Response` of the merged file.
  * @throws {PostfetchError} If the CDN responds with a non-OK status.
  *
  * @example
@@ -33,6 +36,10 @@ export type Archive = {
  */
 export async function download(item: MediaItem, options: DownloadOptions = {}): Promise<Response> {
   const net = createNet(options.fetch ?? globalThis.fetch);
+  if (item.audio) {
+    const bytes = await mergedBytes(net, item, item.audio);
+    return new Response(toArrayBuffer(bytes), { headers: { "content-length": String(bytes.length), "content-type": item.mime } });
+  }
   const response = await net(item.url, { headers: item.headers });
   if (!response.ok || !response.body) {
     throw new PostfetchError(502, `download failed: ${response.status}`);
@@ -50,21 +57,16 @@ export async function download(item: MediaItem, options: DownloadOptions = {}): 
 export async function archive(result: PostfetchResult, options: DownloadOptions = {}): Promise<Archive> {
   const net = createNet(options.fetch ?? globalThis.fetch);
   const files = await Promise.all(
-    result.items.map(async (item) => {
-      const response = await net(item.url, { headers: item.headers });
-      if (!response.ok) {
-        throw new PostfetchError(502, `download failed: ${response.status}`);
-      }
-      return { data: new Uint8Array(await response.arrayBuffer()), name: item.filename };
-    }),
+    result.items.map(async (item) => ({ data: await itemBytes(net, item), name: item.filename })),
   );
   return { bytes: zip(files), filename: result.archiveFilename, mime: "application/zip" };
 }
 
 /**
  * Turn a result into a ready-to-serve `Response`: a single item is streamed as
- * its file, multiple items become a zip. Sets `content-disposition` and the
- * `x-media-*` headers. This is what the showcase server and templates return.
+ * its file (or, when muxed, merged and buffered), multiple items become a zip.
+ * Sets `content-disposition` and the `x-media-*` headers. This is what the
+ * showcase server and templates return.
  *
  * @param result A {@link PostfetchResult}.
  * @param options See {@link DownloadOptions}.
@@ -78,6 +80,21 @@ export async function toResponse(result: PostfetchResult, options: DownloadOptio
 }
 
 async function singleResponse(item: MediaItem, options: DownloadOptions): Promise<Response> {
+  if (item.audio) {
+    const net = createNet(options.fetch ?? globalThis.fetch);
+    const bytes = await mergedBytes(net, item, item.audio);
+    return new Response(toArrayBuffer(bytes), {
+      headers: {
+        "content-disposition": `attachment; filename="${item.filename}"`,
+        "content-length": String(bytes.length),
+        "content-type": item.mime,
+        "x-media-count": "1",
+        "x-media-id": item.id,
+        "x-media-kind": item.kind,
+        "x-media-platform": item.platform,
+      },
+    });
+  }
   const media = await download(item, options);
   const headers = new Headers({
     "content-disposition": `attachment; filename="${item.filename}"`,
@@ -96,8 +113,7 @@ async function singleResponse(item: MediaItem, options: DownloadOptions): Promis
 
 async function archiveResponse(result: PostfetchResult, options: DownloadOptions): Promise<Response> {
   const { bytes, filename } = await archive(result, options);
-  const body = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
-  return new Response(body, {
+  return new Response(toArrayBuffer(bytes), {
     headers: {
       "content-disposition": `attachment; filename="${filename}"`,
       "content-length": String(bytes.length),
@@ -107,4 +123,32 @@ async function archiveResponse(result: PostfetchResult, options: DownloadOptions
       "x-media-platform": result.platform,
     },
   });
+}
+
+async function itemBytes(net: Net, item: MediaItem): Promise<Uint8Array> {
+  if (item.audio) {
+    return mergedBytes(net, item, item.audio);
+  }
+  return fetchBytes(net, item.url, item.headers);
+}
+
+// A muxed item's two streams are fetched in parallel and merged in a single pass.
+async function mergedBytes(net: Net, item: MediaItem, audio: NonNullable<MediaItem["audio"]>): Promise<Uint8Array> {
+  const [video, audioBytes] = await Promise.all([
+    fetchBytes(net, item.url, item.headers),
+    fetchBytes(net, audio.url, audio.headers),
+  ]);
+  return mergeAudioVideo(video, audioBytes);
+}
+
+async function fetchBytes(net: Net, url: string, headers: HeadersInit): Promise<Uint8Array> {
+  const response = await net(url, { headers });
+  if (!response.ok) {
+    throw new PostfetchError(502, `download failed: ${response.status}`);
+  }
+  return new Uint8Array(await response.arrayBuffer());
+}
+
+function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
+  return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
 }
