@@ -1,6 +1,13 @@
+import { assembleHls } from "./hls";
 import { createNet, PostfetchError, type MediaItem, type Net, type PostfetchResult } from "./internal";
 import { mergeAudioVideo } from "./remux";
 import { zip } from "./zip";
+
+// A muxed item carries a separate audio stream; an HLS item carries playlists.
+// Either way the bytes must be assembled in-process rather than streamed.
+function buffered(item: MediaItem): boolean {
+  return Boolean(item.audio) || item.hls === true;
+}
 
 /** Options for {@link download}, {@link archive} and {@link toResponse}. */
 export type DownloadOptions = {
@@ -36,8 +43,8 @@ export type Archive = {
  */
 export async function download(item: MediaItem, options: DownloadOptions = {}): Promise<Response> {
   const net = createNet(options.fetch ?? globalThis.fetch);
-  if (item.audio) {
-    const bytes = await mergedBytes(net, item, item.audio);
+  if (buffered(item)) {
+    const bytes = await itemBytes(net, item);
     return new Response(toArrayBuffer(bytes), { headers: { "content-length": String(bytes.length), "content-type": item.mime } });
   }
   const response = await net(item.url, { headers: item.headers });
@@ -80,9 +87,9 @@ export async function toResponse(result: PostfetchResult, options: DownloadOptio
 }
 
 async function singleResponse(item: MediaItem, options: DownloadOptions): Promise<Response> {
-  if (item.audio) {
+  if (buffered(item)) {
     const net = createNet(options.fetch ?? globalThis.fetch);
-    const bytes = await mergedBytes(net, item, item.audio);
+    const bytes = await itemBytes(net, item);
     return new Response(toArrayBuffer(bytes), {
       headers: {
         "content-disposition": `attachment; filename="${item.filename}"`,
@@ -126,6 +133,13 @@ async function archiveResponse(result: PostfetchResult, options: DownloadOptions
 }
 
 async function itemBytes(net: Net, item: MediaItem): Promise<Uint8Array> {
+  if (item.hls) {
+    const video = await assembleHls(net, item.url, item.headers);
+    if (item.audio) {
+      return mergeAudioVideo(video, await assembleHls(net, item.audio.url, item.audio.headers));
+    }
+    return video;
+  }
   if (item.audio) {
     return mergedBytes(net, item, item.audio);
   }
