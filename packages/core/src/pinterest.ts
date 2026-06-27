@@ -11,11 +11,12 @@ import {
   type MediaItem,
 } from "./internal";
 import { browserUserAgent } from "./fingerprint";
+import { isMasterPlaylist, parseMaster, type HlsVariant } from "./hls";
 
 export async function resolvePinterest(input: ResolveContext): Promise<PostfetchResult> {
   const id = await pinId(input.net, input.url);
   const pin = await pinResource(input.net, id);
-  const items = mediaItems(pin, id);
+  const items = await mediaItems(input, pin, id);
   if (items.length === 0) {
     throw new Error("Pinterest media not found");
   }
@@ -70,27 +71,27 @@ async function pinResource(net: Net, id: string): Promise<Json> {
   return pin;
 }
 
-function mediaItems(pin: Json, id: string): MediaItem[] {
-  const video = standardVideo(pin, id);
+async function mediaItems(input: ResolveContext, pin: Json, id: string): Promise<MediaItem[]> {
+  const video = await standardVideo(input, pin, id);
   if (video.length > 0) {
     return video;
   }
-  const story = storyItems(pin, id);
+  const story = await storyItems(input, pin, id);
   if (story.length > 0) {
     return story;
   }
   return imageItems(pin, id);
 }
 
-function standardVideo(pin: Json, id: string): MediaItem[] {
-  const url = progressiveMp4(videoList(object(pin.videos) ? pin.videos : null));
-  return url ? [videoItem(id, null, url)] : [];
+async function standardVideo(input: ResolveContext, pin: Json, id: string): Promise<MediaItem[]> {
+  const item = await videoFromList(input, id, null, videoList(object(pin.videos) ? pin.videos : null));
+  return item ? [item] : [];
 }
 
-// Idea pins carry their media as story blocks. Their videos are usually
-// HLS-only; rather than silently fall back to the static cover image, a video
-// block without a progressive rendition is reported as needing muxing.
-function storyItems(pin: Json, id: string): MediaItem[] {
+// Idea pins carry their media as story blocks, usually as HLS rather than a
+// progressive file. Each video block is resolved to its best rendition; only a
+// block with neither a progressive nor an HLS stream is treated as undownloadable.
+async function storyItems(input: ResolveContext, pin: Json, id: string): Promise<MediaItem[]> {
   const story = object(pin.story_pin_data) ? pin.story_pin_data : null;
   if (!story) {
     return [];
@@ -98,17 +99,74 @@ function storyItems(pin: Json, id: string): MediaItem[] {
   const pages = Array.isArray(story.pages) ? story.pages.filter(object) : [];
   const blocks = pages.flatMap((page) => (Array.isArray(page.blocks) ? page.blocks.filter(object) : []));
   const videoBlocks = blocks.filter((block) => object(block.video));
-  const videos = videoBlocks.flatMap((block, index) => {
-    const url = progressiveMp4(videoList(object(block.video) ? block.video : null));
-    return url ? [videoItem(id, index + 1, url)] : [];
-  });
+  const videos: MediaItem[] = [];
+  for (const [index, block] of videoBlocks.entries()) {
+    const item = await videoFromList(input, id, index + 1, videoList(object(block.video) ? block.video : null));
+    if (item) {
+      videos.push(item);
+    }
+  }
   if (videos.length > 0) {
     return videos;
   }
   if (videoBlocks.length > 0) {
-    throw new Error("Pinterest idea pin video is HLS-only (muxing required)");
+    throw new Error("Pinterest idea pin video has no downloadable rendition");
   }
   return imageItems(pin, id);
+}
+
+// Prefer a progressive mp4; fall back to the HLS master, picking the variant
+// nearest the preferred width and pairing it with its audio group.
+async function videoFromList(input: ResolveContext, id: string, index: number | null, renditions: Json[]): Promise<MediaItem | null> {
+  const progressive = progressiveMp4(renditions);
+  if (progressive) {
+    return videoItem(id, index, progressive);
+  }
+  const master = hlsUrl(renditions);
+  return master ? hlsVideoItem(input.net, id, index, master, input.preferredWidth) : null;
+}
+
+async function hlsVideoItem(net: Net, id: string, index: number | null, masterUrl: string, preferredWidth: number): Promise<MediaItem> {
+  const headers = { "user-agent": browserUserAgent() };
+  const suffix = index === null ? "" : `_${index}`;
+  const base: MediaItem = {
+    filename: filename(`pinterest_${id}${suffix}.mp4`),
+    headers,
+    hls: true,
+    id,
+    kind: "video",
+    mime: "video/mp4",
+    platform: "pinterest",
+    url: masterUrl,
+  };
+  const response = await net(masterUrl, { headers });
+  if (!response.ok) {
+    throw new Error(`Pinterest HLS failed: ${response.status}`);
+  }
+  const playlist = await response.text();
+  if (!isMasterPlaylist(playlist)) {
+    return base;
+  }
+  const master = parseMaster(playlist, masterUrl);
+  const variant = pickVariant(master.variants, preferredWidth);
+  if (!variant) {
+    throw new Error("Pinterest HLS variant not found");
+  }
+  const audioUrl = variant.audioGroup ? master.audio[variant.audioGroup] : undefined;
+  return { ...base, url: variant.url, ...(audioUrl ? { audio: { headers, url: audioUrl } } : {}) };
+}
+
+function pickVariant(variants: HlsVariant[], preferredWidth: number): HlsVariant | null {
+  return variants.reduce<HlsVariant | null>((current, variant) => {
+    if (!current) {
+      return variant;
+    }
+    return Math.abs(variant.width - preferredWidth) < Math.abs(current.width - preferredWidth) ? variant : current;
+  }, null);
+}
+
+function hlsUrl(renditions: Json[]): string | null {
+  return renditions.map((rendition) => string(rendition.url)).find((url): url is string => url !== null && url.toLowerCase().includes(".m3u8")) ?? null;
 }
 
 function imageItems(pin: Json, id: string): MediaItem[] {

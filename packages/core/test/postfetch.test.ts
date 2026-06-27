@@ -262,7 +262,7 @@ describe("postfetch", () => {
     expect(result.items[0]).toMatchObject({ kind: "image", mime: "image/jpeg", url: "https://i.pinimg.com/originals/aa/bb.jpg" });
   });
 
-  test("rejects a Pinterest idea pin whose video is HLS-only (injected fetch)", async () => {
+  test("resolves a Pinterest idea pin through its HLS master (injected fetch)", async () => {
     const pin = {
       id: "789",
       images: { orig: { url: "https://i.pinimg.com/originals/cover.jpg" } },
@@ -270,9 +270,23 @@ describe("postfetch", () => {
         pages: [{ blocks: [{ block_type: 3, video: { video_list: { V_HLSV3_MOBILE: { url: "https://v1.pinimg.com/videos/x/hls/b.m3u8" } } } }] }],
       },
     };
-    await expect(
-      postfetch("https://www.pinterest.com/pin/789/", { fetch: stubFetch(pinterestRoutes(pin)) }),
-    ).rejects.toThrow(/muxing/);
+    const master = [
+      "#EXTM3U",
+      '#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="audio1",URI="b_audio.m3u8"',
+      '#EXT-X-STREAM-INF:BANDWIDTH=378552,RESOLUTION=234x416,AUDIO="audio1"',
+      "b_240w.m3u8",
+      '#EXT-X-STREAM-INF:BANDWIDTH=896408,RESOLUTION=486x864,AUDIO="audio1"',
+      "b_486w.m3u8",
+    ].join("\n");
+    const routes = { ...pinterestRoutes(pin), "https://v1.pinimg.com/videos/x/hls/b.m3u8": () => new Response(master) };
+    const result = await postfetch("https://www.pinterest.com/pin/789/", { preferredWidth: 480, fetch: stubFetch(routes) });
+
+    expect(result.items[0]).toMatchObject({
+      kind: "video",
+      hls: true,
+      url: "https://v1.pinimg.com/videos/x/hls/b_486w.m3u8",
+      audio: { url: "https://v1.pinimg.com/videos/x/hls/b_audio.m3u8" },
+    });
   });
 
   function soundcloudRoutes(transcodings: unknown[]): Record<string, () => Response> {
@@ -302,15 +316,20 @@ describe("postfetch", () => {
     expect(result.items[0]).toMatchObject({ kind: "audio", mime: "audio/mpeg", url: "https://cf-media.sndcdn.com/x.128.mp3?Policy=y" });
   });
 
-  test("rejects a SoundCloud track that is HLS-only (injected fetch)", async () => {
-    await expect(
-      postfetch("https://soundcloud.com/artist/track", {
-        fetch: stubFetch(
-          soundcloudRoutes([
-            { format: { protocol: "hls", mime_type: "audio/mpeg" }, url: "https://api-v2.soundcloud.com/media/t/h/stream/hls" },
-          ]),
-        ),
-      }),
-    ).rejects.toThrow(/muxing/);
+  test("resolves a SoundCloud HLS-only track as an assembled audio item (injected fetch)", async () => {
+    const result = await postfetch("https://soundcloud.com/artist/track", {
+      fetch: stubFetch(
+        soundcloudRoutes([
+          { format: { protocol: "hls", mime_type: 'audio/mp4; codecs="mp4a.40.2"' }, url: "https://api-v2.soundcloud.com/media/t/h/stream/hls" },
+        ]),
+      ),
+    });
+
+    expect(result.items[0]).toMatchObject({
+      kind: "audio",
+      mime: "audio/mp4",
+      hls: true,
+      url: "https://cf-media.sndcdn.com/x.128.mp3?Policy=y",
+    });
   });
 });

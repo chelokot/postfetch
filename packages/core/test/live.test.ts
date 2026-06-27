@@ -80,6 +80,22 @@ describe("live network", () => {
     30_000,
   );
 
+  test.skipIf(!runs("pinterest"))(
+    "pinterest idea pin assembles its HLS video and audio into one mp4",
+    async () => {
+      const result = await postfetch("https://www.pinterest.com/pin/8303580559742266/");
+      const item = result.items[0];
+      expect(item?.hls).toBe(true);
+      expect(item?.audio?.url).toBeDefined();
+      if (!item) {
+        throw new Error("no item");
+      }
+      const merged = new Uint8Array(await (await download(item)).arrayBuffer());
+      expect(String.fromCharCode(merged[4], merged[5], merged[6], merged[7])).toBe("ftyp");
+    },
+    60_000,
+  );
+
   test.skipIf(!runs("soundcloud"))(
     "soundcloud track resolves to a progressive mp3",
     async () => {

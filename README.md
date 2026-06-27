@@ -101,9 +101,10 @@ A single post is written as one file, carousels and slideshows as a `.zip`; the 
 | Reddit | video post (audio remuxed in-process) | `video/mp4` |
 | Pinterest | image pin | `image/jpeg` |
 | Pinterest | video pin (progressive rendition) | `video/mp4` |
-| SoundCloud | track with a progressive stream | `audio/mpeg` |
+| Pinterest | idea pin (HLS, video + audio merged) | `video/mp4` |
+| SoundCloud | track (progressive or HLS) | `audio/mpeg` or `audio/mp4` |
 
-YouTube and Reddit hand out HD video and audio as separate DASH streams; both are fetched and **remuxed into one MP4 in-process** at download time — recombining the fragments at the box level, no `ffmpeg` ([`remux.ts`](packages/core/src/remux.ts)). YouTube picks H.264 video close to the preferred width (so the default stays modest, not 4K) plus the best AAC track. Sources that expose only HLS — a Pinterest idea pin, or a SoundCloud track without a progressive stream — still need a segment demuxer and are reported as such rather than returned as a static cover or silent.
+YouTube and Reddit hand out HD video and audio as separate DASH streams; both are fetched and **remuxed into one MP4 in-process** at download time — recombining the fragments at the box level, no `ffmpeg` ([`remux.ts`](packages/core/src/remux.ts)). YouTube picks H.264 video close to the preferred width (so the default stays modest, not 4K) plus the best AAC track. Pinterest idea pins and SoundCloud's HLS-only tracks expose their media as **HLS playlists**, whose CMAF segments are fetched and concatenated into a fragmented MP4 — and merged, for a separate video+audio pair — the same way, again with no `ffmpeg` ([`hls.ts`](packages/core/src/hls.ts)).
 
 ## Staying unblocked
 

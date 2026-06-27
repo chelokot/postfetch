@@ -17,6 +17,13 @@ export type MediaItem = {
   filename: string;
   /** Headers required to fetch {@link MediaItem.url} from the CDN. */
   headers: HeadersInit;
+  /**
+   * When `true`, {@link MediaItem.url} (and `audio.url`, if set) are HLS media
+   * playlists rather than direct files: {@link download} assembles their segments
+   * into a fragmented MP4 before serving — and merges video with audio when both
+   * are present. Callers that read `url` directly get the playlist, not the media.
+   */
+  hls?: boolean;
   /** Platform media id. */
   id: string;
   /** Whether this item is a video, image or audio file. */

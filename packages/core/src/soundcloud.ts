@@ -72,13 +72,25 @@ async function resolveTrack(net: Net, url: string, clientId: string): Promise<Js
 async function audioItem(net: Net, track: Json, id: string, clientId: string): Promise<MediaItem> {
   const media = object(track.media) ? track.media : null;
   const transcodings = media && Array.isArray(media.transcodings) ? media.transcodings.filter(object) : [];
+  // Prefer the direct progressive mp3; otherwise assemble the AAC HLS playlist
+  // (its CMAF segments concatenate into a fragmented mp4) at download time.
   const progressive = transcodings.find((transcoding) => protocol(transcoding) === "progressive");
-  if (!progressive) {
-    // Some tracks expose only HLS renditions; a single file needs the segment
-    // demuxer rather than a direct progressive stream.
-    throw new Error("SoundCloud track is HLS-only (muxing required)");
+  const hls = transcodings.find((transcoding) => protocol(transcoding) === "hls" && mimeType(transcoding)?.includes("mp4") === true);
+  const chosen = progressive ?? hls;
+  if (!chosen) {
+    throw new Error("SoundCloud track has no downloadable stream");
   }
-  const endpoint = string(progressive.url);
+  const stream = await streamUrl(net, chosen, clientId);
+  const title = string(track.title) ?? id;
+  const headers = { "user-agent": browserUserAgent() };
+  if (chosen === progressive) {
+    return { filename: filename(`soundcloud_${title}.mp3`), headers, id, kind: "audio", mime: "audio/mpeg", platform: "soundcloud", url: stream };
+  }
+  return { filename: filename(`soundcloud_${title}.m4a`), headers, hls: true, id, kind: "audio", mime: "audio/mp4", platform: "soundcloud", url: stream };
+}
+
+async function streamUrl(net: Net, transcoding: Json, clientId: string): Promise<string> {
+  const endpoint = string(transcoding.url);
   if (!endpoint) {
     throw new Error("SoundCloud stream endpoint not found");
   }
@@ -93,21 +105,17 @@ async function audioItem(net: Net, track: Json, id: string, clientId: string): P
   if (!stream) {
     throw new Error("SoundCloud stream url not found");
   }
-  const title = string(track.title) ?? id;
-  return {
-    filename: filename(`soundcloud_${title}.mp3`),
-    headers: { "user-agent": browserUserAgent() },
-    id,
-    kind: "audio",
-    mime: "audio/mpeg",
-    platform: "soundcloud",
-    url: stream,
-  };
+  return stream;
 }
 
 function protocol(transcoding: Json): string | null {
   const format = object(transcoding.format) ? transcoding.format : null;
   return format ? string(format.protocol) : null;
+}
+
+function mimeType(transcoding: Json): string | null {
+  const format = object(transcoding.format) ? transcoding.format : null;
+  return format ? string(format.mime_type) : null;
 }
 
 function trackId(track: Json): string {
