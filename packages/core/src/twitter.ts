@@ -76,6 +76,6 @@ function bestVariant(entry: Json): string | null {
   return best ? string(best.url) : null;
 }
 
-function tweetId(input: string): string | null {
+export function tweetId(input: string): string | null {
   return asUrl(input).pathname.match(/\/status(?:es)?\/(\d+)/)?.[1] ?? null;
 }
