@@ -1,8 +1,13 @@
 import {
   asUrl,
+  bool,
+  count,
   filename,
+  isoFromEpochSeconds,
   object,
   string,
+  type PostMetadata,
+  type TiktokExtra,
   type ResolveContext,
   type Json,
   type Net,
@@ -38,7 +43,36 @@ export async function resolveTiktok(input: ResolveContext): Promise<PostfetchRes
   if (items.length === 0) {
     throw new Error("TikTok media not found");
   }
-  return { archiveFilename: filename(`tiktok_${user}_${id}.zip`), id, items, platform: "tiktok" };
+  return { archiveFilename: filename(`tiktok_${user}_${id}.zip`), id, items, metadata: tiktokMetadata(page.item), platform: "tiktok" };
+}
+
+export function tiktokMetadata(item: Json): PostMetadata & { extra?: TiktokExtra } {
+  const user = object(item.author) ? item.author : null;
+  const stats = object(item.stats) ? item.stats : null;
+  const music = object(item.music) ? item.music : null;
+  const video = object(item.video) ? item.video : null;
+  return {
+    text: string(item.desc) ?? undefined,
+    author: user
+      ? {
+          handle: string(user.uniqueId) ?? undefined,
+          name: string(user.nickname) ?? undefined,
+          verified: bool(user.verified),
+        }
+      : undefined,
+    createdAt: isoFromEpochSeconds(item.createTime),
+    likeCount: stats ? count(stats.diggCount) : undefined,
+    commentCount: stats ? count(stats.commentCount) : undefined,
+    shareCount: stats ? count(stats.shareCount) : undefined,
+    viewCount: stats ? count(stats.playCount) : undefined,
+    extra: {
+      saveCount: stats ? count(stats.collectCount) : undefined,
+      musicTitle: music ? string(music.title) ?? undefined : undefined,
+      musicAuthor: music ? string(music.authorName) ?? undefined : undefined,
+      region: string(item.locationCreated) ?? undefined,
+      durationSeconds: video ? count(video.duration) : undefined,
+    },
+  };
 }
 
 async function fetchVideoPage(

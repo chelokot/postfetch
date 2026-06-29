@@ -1,9 +1,14 @@
 import {
   asUrl,
+  bool,
+  count,
   filename,
+  isoFromDateString,
   number,
   object,
   string,
+  type PostMetadata,
+  type TwitterExtra,
   type ResolveContext,
   type Json,
   type Net,
@@ -26,7 +31,28 @@ export async function resolveTwitter(input: ResolveContext): Promise<PostfetchRe
   if (items.length === 0) {
     throw new Error("Twitter media not found");
   }
-  return { archiveFilename: filename(`twitter_${id}.zip`), id, items, platform: "twitter" };
+  return { archiveFilename: filename(`twitter_${id}.zip`), id, items, metadata: twitterMetadata(tweet), platform: "twitter" };
+}
+
+export function twitterMetadata(tweet: Json): PostMetadata & { extra?: TwitterExtra } {
+  const user = object(tweet.user) ? tweet.user : null;
+  return {
+    text: (string(tweet.text) ?? string(tweet.full_text)) ?? undefined,
+    author: user
+      ? {
+          handle: string(user.screen_name) ?? undefined,
+          name: string(user.name) ?? undefined,
+          verified: bool(user.verified) ?? bool(user.is_blue_verified),
+        }
+      : undefined,
+    createdAt: isoFromDateString(tweet.created_at),
+    likeCount: count(tweet.favorite_count),
+    commentCount: count(tweet.conversation_count),
+    shareCount: count(tweet.retweet_count),
+    viewCount: count(tweet.view_count),
+    nsfw: bool(tweet.possibly_sensitive),
+    extra: { lang: string(tweet.lang) ?? undefined },
+  };
 }
 
 // The public syndication endpoint returns tweet media (video variants + photos)

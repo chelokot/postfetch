@@ -1,8 +1,14 @@
 import {
   asUrl,
+  bool,
+  count,
   filename,
+  isoFromEpochSeconds,
+  number,
   object,
   string,
+  type PostMetadata,
+  type RedditExtra,
   type ResolveContext,
   type Json,
   type Net,
@@ -25,7 +31,26 @@ export async function resolveReddit(input: ResolveContext): Promise<PostfetchRes
   if (items.length === 0) {
     throw new Error("Reddit media not found");
   }
-  return { archiveFilename: filename(`reddit_${id}.zip`), id, items, platform: "reddit" };
+  return { archiveFilename: filename(`reddit_${id}.zip`), id, items, metadata: redditMetadata(post), platform: "reddit" };
+}
+
+export function redditMetadata(post: Json): PostMetadata & { extra?: RedditExtra } {
+  const author = string(post.author);
+  return {
+    title: string(post.title) ?? undefined,
+    text: string(post.selftext) ?? undefined,
+    author: author ? { handle: author } : undefined,
+    createdAt: isoFromEpochSeconds(post.created_utc),
+    likeCount: count(post.ups),
+    commentCount: count(post.num_comments),
+    nsfw: bool(post.over_18),
+    extra: {
+      subreddit: string(post.subreddit) ?? undefined,
+      score: number(post.score) ?? undefined,
+      upvoteRatio: number(post.upvote_ratio) ?? undefined,
+      permalink: string(post.permalink) ?? undefined,
+    },
+  };
 }
 
 // Share and short links (redd.it/<id>, /r/<sub>/s/<share>) carry no post id, so

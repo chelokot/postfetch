@@ -22,6 +22,8 @@ describe("live network", () => {
       expect(result.platform).toBe("instagram");
       expect(result.items[0]?.kind).toBe("video");
       expect(result.items[0]?.mime).toBe("video/mp4");
+      expect(result.metadata?.author?.handle).toBeTruthy();
+      expect(result.metadata?.createdAt).toBeTruthy();
     },
     30_000,
   );
@@ -47,6 +49,12 @@ describe("live network", () => {
       const result = await postfetch("https://www.reddit.com/r/pics/comments/1ugzn9p/seen_in_the_uk/");
       expect(result.platform).toBe("reddit");
       expect(result.items[0]?.kind).toBe("image");
+      expect(result.metadata?.title).toBe("Seen in the UK");
+      expect(result.metadata?.author?.handle).toBeTruthy();
+      expect(typeof result.metadata?.likeCount).toBe("number");
+      if (result.platform === "reddit") {
+        expect(result.metadata?.extra?.subreddit).toBe("pics");
+      }
     },
     30_000,
   );
@@ -76,6 +84,10 @@ describe("live network", () => {
       expect(result.platform).toBe("pinterest");
       expect(result.items[0]?.kind).toBe("video");
       expect(result.items[0]?.mime).toBe("video/mp4");
+      expect(result.metadata?.title).toBeTruthy();
+      if (result.platform === "pinterest") {
+        expect(typeof result.metadata?.extra?.saveCount).toBe("number");
+      }
     },
     30_000,
   );
@@ -103,6 +115,9 @@ describe("live network", () => {
       expect(result.platform).toBe("soundcloud");
       expect(result.items[0]?.kind).toBe("audio");
       expect(result.items[0]?.mime).toBe("audio/mpeg");
+      expect(result.metadata?.title).toBeTruthy();
+      expect(result.metadata?.author?.handle).toBeTruthy();
+      expect(typeof result.metadata?.viewCount).toBe("number");
     },
     30_000,
   );
@@ -123,6 +138,9 @@ describe("live network", () => {
       const result = await postfetch("https://vm.tiktok.com/ZNRwhV7G2/");
       expect(result.platform).toBe("tiktok");
       expect(result.items[0]?.kind).toBe("video");
+      expect(result.metadata?.author?.handle).toBeTruthy();
+      expect(typeof result.metadata?.likeCount).toBe("number");
+      expect(typeof result.metadata?.viewCount).toBe("number");
     },
     30_000,
   );
@@ -135,6 +153,12 @@ describe("live network", () => {
       const result = await postfetch("https://www.youtube.com/watch?v=jNQXAC9IVRw");
       expect(result.platform).toBe("youtube");
       expect(result.items[0]?.kind).toBe("video");
+      expect(result.metadata?.title).toBeTruthy();
+      expect(result.metadata?.author?.name).toBeTruthy();
+      expect(typeof result.metadata?.viewCount).toBe("number");
+      if (result.platform === "youtube") {
+        expect(result.metadata?.extra?.channelId).toBeTruthy();
+      }
     },
     30_000,
   );
@@ -179,6 +203,9 @@ describe("live network", () => {
       expect(result.platform).toBe("twitter");
       expect(result.items[0]?.kind).toBe("video");
       expect(result.items[0]?.mime).toBe("video/mp4");
+      expect(result.metadata?.text).toBeTruthy();
+      expect(result.metadata?.author?.handle).toBeTruthy();
+      expect(typeof result.metadata?.likeCount).toBe("number");
     },
     30_000,
   );

@@ -1,9 +1,13 @@
 import {
   asUrl,
+  count,
   filename,
+  isoFromDateString,
   number,
   object,
   string,
+  type PinterestExtra,
+  type PostMetadata,
   type ResolveContext,
   type Json,
   type Net,
@@ -20,7 +24,29 @@ export async function resolvePinterest(input: ResolveContext): Promise<Postfetch
   if (items.length === 0) {
     throw new Error("Pinterest media not found");
   }
-  return { archiveFilename: filename(`pinterest_${id}.zip`), id, items, platform: "pinterest" };
+  return { archiveFilename: filename(`pinterest_${id}.zip`), id, items, metadata: pinterestMetadata(pin), platform: "pinterest" };
+}
+
+export function pinterestMetadata(pin: Json): PostMetadata & { extra?: PinterestExtra } {
+  const pinner = object(pin.pinner) ? pin.pinner : null;
+  const reactions = object(pin.reaction_counts)
+    ? Object.values(pin.reaction_counts).reduce<number>((sum, value) => sum + (count(value) ?? 0), 0)
+    : undefined;
+  return {
+    title: (string(pin.title) ?? string(pin.grid_title)) ?? undefined,
+    text: string(pin.description) ?? undefined,
+    author: pinner
+      ? { handle: string(pinner.username) ?? undefined, name: string(pinner.full_name) ?? undefined }
+      : undefined,
+    createdAt: isoFromDateString(pin.created_at),
+    likeCount: reactions,
+    commentCount: count(pin.comment_count),
+    extra: {
+      saveCount: count(pin.repin_count),
+      dominantColor: string(pin.dominant_color) ?? undefined,
+      outboundLink: string(pin.link) ?? undefined,
+    },
+  };
 }
 
 // pin.it short links carry no pin id, so they are followed once to the canonical

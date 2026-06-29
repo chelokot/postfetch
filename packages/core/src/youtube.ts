@@ -1,9 +1,13 @@
 import {
   asUrl,
+  count,
   filename,
+  isoFromDateString,
   number,
   object,
   string,
+  type PostMetadata,
+  type YoutubeExtra,
   type ResolveContext,
   type Json,
   type Net,
@@ -63,7 +67,32 @@ export async function resolveYoutube(input: ResolveContext): Promise<PostfetchRe
     url: streams.video,
     ...(streams.audio ? { audio: { headers, url: streams.audio } } : {}),
   };
-  return { archiveFilename: filename(`youtube_${id}.zip`), id, items: [media], platform: "youtube" };
+  return { archiveFilename: filename(`youtube_${id}.zip`), id, items: [media], metadata: youtubeMetadata(payload), platform: "youtube" };
+}
+
+export function youtubeMetadata(payload: unknown): PostMetadata & { extra?: YoutubeExtra } {
+  const details = object(payload) && object(payload.videoDetails) ? payload.videoDetails : null;
+  const renderer =
+    object(payload) && object(payload.microformat) && object(payload.microformat.playerMicroformatRenderer)
+      ? payload.microformat.playerMicroformatRenderer
+      : null;
+  const author = details ? string(details.author) : null;
+  const keywords =
+    details && Array.isArray(details.keywords)
+      ? details.keywords.filter((keyword): keyword is string => typeof keyword === "string")
+      : [];
+  return {
+    title: details ? string(details.title) ?? undefined : undefined,
+    text: details ? string(details.shortDescription) ?? undefined : undefined,
+    author: author ? { name: author } : undefined,
+    createdAt: renderer ? isoFromDateString(renderer.publishDate) : undefined,
+    viewCount: details ? count(details.viewCount) : undefined,
+    extra: {
+      channelId: details ? string(details.channelId) ?? undefined : undefined,
+      durationSeconds: details ? count(details.lengthSeconds) : undefined,
+      keywords: keywords.length > 0 ? keywords : undefined,
+    },
+  };
 }
 
 // Adaptive H.264 video and AAC audio go up to 1080p with direct URLs; merging them
