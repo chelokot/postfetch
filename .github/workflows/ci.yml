@@ -63,8 +63,10 @@ jobs:
     # One job per platform for at-a-glance visibility — a red `live (youtube)`
     # is unmistakably YouTube's datacenter-IP bot gate, not a broken resolver.
     # Guards the original regression (a reel resolving to its cover image) and
-    # proves the rotating fingerprints are not all blocked. Datacenter IPs are
-    # sometimes throttled, so these jobs report without gating merges.
+    # proves the rotating fingerprints are not all blocked. Runner egress is a
+    # datacenter IP that some platforms gate, so traffic goes through a free
+    # Cloudflare WARP proxy (userspace wgcf + wireproxy, no privileges) to look
+    # like a consumer IP; the jobs still report without gating merges.
     name: live (${{ matrix.platform }})
     runs-on: ubuntu-latest
     continue-on-error: true
@@ -78,7 +80,57 @@ jobs:
         with:
           bun-version: 1.3.14
       - run: bun install --frozen-lockfile
-      - run: bun test packages/core/test/live.test.ts
+      - name: Resolve live posts (WARP with IP re-roll where the runner IP is gated)
         env:
           POSTFETCH_LIVE: "1"
           POSTFETCH_LIVE_PLATFORM: ${{ matrix.platform }}
+        run: |
+          # Only YouTube and TikTok gate the datacenter runner IP, so only they
+          # resolve through a free userspace Cloudflare WARP proxy (wgcf +
+          # wireproxy, no privileges). The free WARP egress is a shared consumer
+          # IP that YouTube sometimes rate-limits (429), and some runners drop
+          # the WireGuard handshake outright — so each attempt registers a fresh
+          # WARP account (new IP), bring-up is time-boxed, and a run that never
+          # gets a working tunnel falls back to the runner IP. Other platforms
+          # resolve directly. Live jobs are non-gating regardless.
+          case "$POSTFETCH_LIVE_PLATFORM" in
+            youtube | tiktok) ;;
+            *) exec bun test packages/core/test/live.test.ts ;;
+          esac
+
+          warp="$RUNNER_TEMP/warp"
+          mkdir -p "$warp"
+          curl -fsSL "https://github.com/ViRb3/wgcf/releases/download/v2.2.31/wgcf_2.2.31_linux_amd64" -o "$warp/wgcf"
+          curl -fsSL "https://github.com/pufferffish/wireproxy/releases/download/v1.1.2/wireproxy_linux_amd64.tar.gz" | tar -xz -C "$warp" wireproxy
+          chmod +x "$warp/wgcf" "$warp/wireproxy"
+
+          warp_pid=""
+          stop_warp() { [ -n "$warp_pid" ] && kill "$warp_pid" 2>/dev/null || true; }
+          trap stop_warp EXIT
+
+          roll_warp() {
+            rm -f "$warp/wgcf-account.toml" "$warp/wgcf-profile.conf"
+            ( cd "$warp" && ./wgcf register --accept-tos && ./wgcf generate ) || return 1
+            printf '\n[http]\nBindAddress = 127.0.0.1:8080\n' >>"$warp/wgcf-profile.conf"
+            stop_warp
+            "$warp/wireproxy" --config "$warp/wgcf-profile.conf" >"$warp/wireproxy.log" 2>&1 &
+            warp_pid=$!
+            for _ in $(seq 1 12); do
+              curl -fsS --connect-timeout 3 --max-time 5 -x http://127.0.0.1:8080 https://www.cloudflare.com/cdn-cgi/trace 2>/dev/null | grep -q 'warp=on' && return 0
+              sleep 1
+            done
+            return 1
+          }
+
+          for attempt in 1 2 3; do
+            if roll_warp; then
+              export HTTP_PROXY=http://127.0.0.1:8080 HTTPS_PROXY=http://127.0.0.1:8080
+              echo "WARP is up (attempt $attempt)"
+            else
+              unset HTTP_PROXY HTTPS_PROXY
+              echo "WARP did not come up (attempt $attempt); resolving on the runner IP"
+            fi
+            bun test packages/core/test/live.test.ts && exit 0
+            echo "live $POSTFETCH_LIVE_PLATFORM attempt $attempt failed; rolling the WARP IP"
+          done
+          exit 1

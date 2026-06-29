@@ -108,10 +108,32 @@ describe("live network", () => {
   );
 
   test.skipIf(!runs("tiktok"))(
-    "tiktok resolves a shortlink to a video",
+    "tiktok vt.tiktok.com shortlink resolves to a video",
     async () => {
       const result = await postfetch("https://vt.tiktok.com/ZSxpHvCUM/");
       expect(result.platform).toBe("tiktok");
+      expect(result.items[0]?.kind).toBe("video");
+    },
+    30_000,
+  );
+
+  test.skipIf(!runs("tiktok"))(
+    "tiktok vm.tiktok.com shortlink resolves to a video",
+    async () => {
+      const result = await postfetch("https://vm.tiktok.com/ZNRwhV7G2/");
+      expect(result.platform).toBe("tiktok");
+      expect(result.items[0]?.kind).toBe("video");
+    },
+    30_000,
+  );
+
+  // watch, shorts and youtu.be all collapse to the same video id, and each
+  // shape goes through the same session bootstrap behind YouTube's bot gate.
+  test.skipIf(!runs("youtube"))(
+    "youtube watch link resolves to a progressive mp4 via the session bootstrap",
+    async () => {
+      const result = await postfetch("https://www.youtube.com/watch?v=jNQXAC9IVRw");
+      expect(result.platform).toBe("youtube");
       expect(result.items[0]?.kind).toBe("video");
     },
     30_000,
@@ -121,6 +143,16 @@ describe("live network", () => {
     "youtube short resolves to a progressive mp4 via the session bootstrap",
     async () => {
       const result = await postfetch("https://www.youtube.com/shorts/r5FpeOJItbw");
+      expect(result.platform).toBe("youtube");
+      expect(result.items[0]?.kind).toBe("video");
+    },
+    30_000,
+  );
+
+  test.skipIf(!runs("youtube"))(
+    "youtube youtu.be shortlink resolves to a progressive mp4 via the session bootstrap",
+    async () => {
+      const result = await postfetch("https://youtu.be/VYXAND8enUo");
       expect(result.platform).toBe("youtube");
       expect(result.items[0]?.kind).toBe("video");
     },
@@ -138,10 +170,45 @@ describe("live network", () => {
     30_000,
   );
 
+  // The same tweet can arrive as /i/status, /handle/status, with a /video/N
+  // suffix, or with a tracking query — every shape collapses to the status id.
   test.skipIf(!runs("twitter"))(
-    "x video tweet resolves via syndication",
+    "x i/status link resolves to a video via syndication",
     async () => {
       const result = await postfetch("https://x.com/i/status/2034598055668769263");
+      expect(result.platform).toBe("twitter");
+      expect(result.items[0]?.kind).toBe("video");
+      expect(result.items[0]?.mime).toBe("video/mp4");
+    },
+    30_000,
+  );
+
+  test.skipIf(!runs("twitter"))(
+    "x handle link with a /video/1 suffix resolves to a video",
+    async () => {
+      const result = await postfetch("https://x.com/klara_sjo/status/2036281665748717831/video/1");
+      expect(result.platform).toBe("twitter");
+      expect(result.items[0]?.kind).toBe("video");
+      expect(result.items[0]?.mime).toBe("video/mp4");
+    },
+    30_000,
+  );
+
+  test.skipIf(!runs("twitter"))(
+    "x handle link with a tracking query resolves to a video",
+    async () => {
+      const result = await postfetch("https://x.com/NothingIsArt/status/2054224375545565681?s=20");
+      expect(result.platform).toBe("twitter");
+      expect(result.items[0]?.kind).toBe("video");
+      expect(result.items[0]?.mime).toBe("video/mp4");
+    },
+    30_000,
+  );
+
+  test.skipIf(!runs("twitter"))(
+    "x handle status link resolves to a video",
+    async () => {
+      const result = await postfetch("https://x.com/phantompain281/status/2030252928682905845");
       expect(result.platform).toBe("twitter");
       expect(result.items[0]?.kind).toBe("video");
       expect(result.items[0]?.mime).toBe("video/mp4");
