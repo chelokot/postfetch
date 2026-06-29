@@ -85,21 +85,26 @@ jobs:
           POSTFETCH_LIVE: "1"
           POSTFETCH_LIVE_PLATFORM: ${{ matrix.platform }}
         run: |
-          set -euo pipefail
+          # WARP is best-effort: bringing it up must never fail the job. The
+          # wait loop is the readiness check, so the proxy is only used once
+          # `warp=on` is confirmed; if the tunnel never comes up the tests run
+          # on the runner IP instead of turning a flaky handshake into a red.
           cd "$RUNNER_TEMP"
           curl -fsSL "https://github.com/ViRb3/wgcf/releases/download/v2.2.31/wgcf_2.2.31_linux_amd64" -o wgcf
           curl -fsSL "https://github.com/pufferffish/wireproxy/releases/download/v1.1.2/wireproxy_linux_amd64.tar.gz" | tar -xz wireproxy
           chmod +x wgcf wireproxy
-          ./wgcf register --accept-tos
-          ./wgcf generate
+          ./wgcf register --accept-tos && ./wgcf generate
           printf '\n[http]\nBindAddress = 127.0.0.1:8080\n' >>wgcf-profile.conf
           ./wireproxy --config wgcf-profile.conf &
           trap 'kill $! 2>/dev/null || true' EXIT
           for _ in $(seq 1 30); do
-            curl -fsS -x http://127.0.0.1:8080 https://www.cloudflare.com/cdn-cgi/trace 2>/dev/null | grep -q 'warp=on' && break
+            if curl -fsS -x http://127.0.0.1:8080 https://www.cloudflare.com/cdn-cgi/trace 2>/dev/null | grep -q 'warp=on'; then
+              export HTTP_PROXY=http://127.0.0.1:8080 HTTPS_PROXY=http://127.0.0.1:8080
+              echo "Cloudflare WARP proxy is up"
+              break
+            fi
             sleep 2
           done
-          curl -fsS -x http://127.0.0.1:8080 https://www.cloudflare.com/cdn-cgi/trace | grep '^warp='
-          export HTTP_PROXY=http://127.0.0.1:8080 HTTPS_PROXY=http://127.0.0.1:8080
+          [ -n "${HTTPS_PROXY:-}" ] || echo "Cloudflare WARP proxy did not come up; resolving on the runner IP"
           cd "$GITHUB_WORKSPACE"
           bun test packages/core/test/live.test.ts
