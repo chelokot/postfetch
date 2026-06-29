@@ -77,6 +77,18 @@ describe("live network", () => {
     60_000,
   );
 
+  test.skipIf(!runs("reddit"))(
+    "reddit text post resolves to metadata with no media",
+    async () => {
+      const result = await postfetch("https://www.reddit.com/r/AllClad/comments/1uednos/one_d5_12_inch_frying_pan_for_199_or_two_d3/");
+      expect(result.platform).toBe("reddit");
+      expect(result.items).toHaveLength(0);
+      expect(result.metadata?.title).toBeTruthy();
+      expect(result.metadata?.text).toBeTruthy();
+    },
+    30_000,
+  );
+
   test.skipIf(!runs("pinterest"))(
     "pinterest video pin resolves to a progressive mp4",
     async () => {
