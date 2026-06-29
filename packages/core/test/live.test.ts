@@ -127,10 +127,32 @@ describe("live network", () => {
     30_000,
   );
 
+  // watch, shorts and youtu.be all collapse to the same video id, and each
+  // shape goes through the same session bootstrap behind YouTube's bot gate.
+  test.skipIf(!runs("youtube"))(
+    "youtube watch link resolves to a progressive mp4 via the session bootstrap",
+    async () => {
+      const result = await postfetch("https://www.youtube.com/watch?v=jNQXAC9IVRw");
+      expect(result.platform).toBe("youtube");
+      expect(result.items[0]?.kind).toBe("video");
+    },
+    30_000,
+  );
+
   test.skipIf(!runs("youtube"))(
     "youtube short resolves to a progressive mp4 via the session bootstrap",
     async () => {
       const result = await postfetch("https://www.youtube.com/shorts/r5FpeOJItbw");
+      expect(result.platform).toBe("youtube");
+      expect(result.items[0]?.kind).toBe("video");
+    },
+    30_000,
+  );
+
+  test.skipIf(!runs("youtube"))(
+    "youtube youtu.be shortlink resolves to a progressive mp4 via the session bootstrap",
+    async () => {
+      const result = await postfetch("https://youtu.be/VYXAND8enUo");
       expect(result.platform).toBe("youtube");
       expect(result.items[0]?.kind).toBe("video");
     },
