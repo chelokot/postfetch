@@ -1,9 +1,14 @@
 import {
   asUrl,
+  bool,
+  count,
   filename,
+  isoFromEpochSeconds,
   number,
   object,
   string,
+  type InstagramExtra,
+  type PostMetadata,
   type ResolveContext,
   type Net,
   type Json,
@@ -63,7 +68,51 @@ export async function resolveInstagram(input: ResolveContext): Promise<Postfetch
   if (items.length === 0) {
     throw new Error("Instagram media url not found");
   }
-  return { archiveFilename: filename(`instagram_${code}.zip`), id: code, items, platform: "instagram" };
+  return { archiveFilename: filename(`instagram_${code}.zip`), id: code, items, metadata: instagramMetadata(media), platform: "instagram" };
+}
+
+export function instagramMetadata(media: Json): PostMetadata & { extra?: InstagramExtra } {
+  const user = object(media.user) ? media.user : object(media.owner) ? media.owner : null;
+  const countsHidden = bool(media.like_and_view_counts_disabled);
+  return {
+    text: instagramCaption(media),
+    author: user
+      ? {
+          handle: string(user.username) ?? undefined,
+          name: string(user.full_name) ?? undefined,
+          verified: bool(user.is_verified),
+        }
+      : undefined,
+    createdAt: isoFromEpochSeconds(media.taken_at ?? media.taken_at_timestamp),
+    likeCount: countsHidden ? undefined : count(media.like_count) ?? edgeCount(media.edge_media_preview_like) ?? edgeCount(media.edge_liked_by),
+    commentCount: count(media.comment_count) ?? edgeCount(media.edge_media_to_comment) ?? edgeCount(media.edge_media_to_parent_comment),
+    viewCount: countsHidden ? undefined : count(media.play_count) ?? count(media.view_count) ?? count(media.video_view_count),
+    extra: {
+      productType: string(media.product_type) ?? undefined,
+      countsHidden,
+      location: object(media.location) ? string(media.location.name) ?? undefined : undefined,
+    },
+  };
+}
+
+// Caption arrives as an object ({ text }), a bare string, or the GraphQL
+// edge_media_to_caption edge list, depending on which endpoint resolved the post.
+function instagramCaption(media: Json): string | undefined {
+  if (object(media.caption)) {
+    return string(media.caption.text) ?? undefined;
+  }
+  const direct = string(media.caption);
+  if (direct) {
+    return direct;
+  }
+  const edges =
+    object(media.edge_media_to_caption) && Array.isArray(media.edge_media_to_caption.edges) ? media.edge_media_to_caption.edges : [];
+  const node = object(edges[0]) && object(edges[0].node) ? edges[0].node : null;
+  return node ? string(node.text) ?? undefined : undefined;
+}
+
+function edgeCount(value: unknown): number | undefined {
+  return object(value) ? count(value.count) : undefined;
 }
 
 function shortcode(input: string): string {

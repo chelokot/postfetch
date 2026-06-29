@@ -22,4 +22,19 @@
 export { postfetch, detect, type PostfetchOptions } from "./postfetch";
 export { download, archive, toResponse, type Archive, type DownloadOptions } from "./download";
 export { PostfetchError } from "./internal";
-export type { MediaItem, MediaKind, Platform, PostfetchResult } from "./internal";
+export type {
+  InstagramExtra,
+  MediaItem,
+  MediaKind,
+  PinterestExtra,
+  Platform,
+  PlatformResult,
+  PostAuthor,
+  PostfetchResult,
+  PostMetadata,
+  RedditExtra,
+  SoundcloudExtra,
+  TiktokExtra,
+  TwitterExtra,
+  YoutubeExtra,
+} from "./internal";

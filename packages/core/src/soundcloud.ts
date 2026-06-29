@@ -1,9 +1,13 @@
 import {
   asUrl,
+  count,
   filename,
+  isoFromDateString,
   number,
   object,
   string,
+  type PostMetadata,
+  type SoundcloudExtra,
   type ResolveContext,
   type Json,
   type Net,
@@ -18,7 +22,29 @@ export async function resolveSoundcloud(input: ResolveContext): Promise<Postfetc
   const track = await resolveTrack(input.net, url, clientId);
   const id = trackId(track);
   const item = await audioItem(input.net, track, id, clientId);
-  return { archiveFilename: filename(`soundcloud_${id}.zip`), id, items: [item], platform: "soundcloud" };
+  return { archiveFilename: filename(`soundcloud_${id}.zip`), id, items: [item], metadata: soundcloudMetadata(track), platform: "soundcloud" };
+}
+
+export function soundcloudMetadata(track: Json): PostMetadata & { extra?: SoundcloudExtra } {
+  const user = object(track.user) ? track.user : null;
+  const durationMs = count(track.duration);
+  return {
+    title: string(track.title) ?? undefined,
+    text: string(track.description) ?? undefined,
+    author: user
+      ? { handle: string(user.username) ?? undefined, name: string(user.full_name) ?? undefined }
+      : undefined,
+    createdAt: isoFromDateString(track.created_at),
+    likeCount: count(track.likes_count),
+    commentCount: count(track.comment_count),
+    shareCount: count(track.reposts_count),
+    viewCount: count(track.playback_count),
+    extra: {
+      genre: string(track.genre) ?? undefined,
+      license: string(track.license) ?? undefined,
+      durationSeconds: durationMs === undefined ? undefined : Math.round(durationMs / 1000),
+    },
+  };
 }
 
 async function canonicalUrl(net: Net, input: string): Promise<string> {

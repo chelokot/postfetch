@@ -36,8 +36,128 @@ export type MediaItem = {
   url: string;
 };
 
-/** The result of resolving a post: its platform, id and one or more media items. */
-export type PostfetchResult = {
+/** The author of a post, normalized across platforms. */
+export type PostAuthor = {
+  /** Account handle (the `@username`), where the platform exposes one. */
+  handle?: string;
+  /** Display name, where it differs from the handle. */
+  name?: string;
+  /** Whether the account is verified, where the platform reports it. */
+  verified?: boolean;
+};
+
+/**
+ * Post metadata normalized across platforms. Every field is optional: an absent
+ * field means the platform did not expose it in the payload already fetched to
+ * resolve the media (never a fabricated default — a missing count is `undefined`,
+ * not `0`). All counts are non-negative. Platform-specific fields live in `extra`.
+ */
+export type PostMetadata = {
+  /** Short headline, where the platform has one distinct from the body (Reddit, YouTube, Pinterest, SoundCloud). */
+  title?: string;
+  /** Body text: caption, tweet, description or self-text. */
+  text?: string;
+  /** Who posted it. */
+  author?: PostAuthor;
+  /** Publication time as an ISO 8601 string. */
+  createdAt?: string;
+  /** Positive reactions (likes, upvotes, favorites, diggs). */
+  likeCount?: number;
+  /** Number of comments or replies. */
+  commentCount?: number;
+  /** Genuine reshares (TikTok shares, retweets, reposts) — not saves. */
+  shareCount?: number;
+  /** Views or plays. */
+  viewCount?: number;
+  /** Whether the post is marked not-safe-for-work, where the platform reports it. */
+  nsfw?: boolean;
+};
+
+/** Reddit-specific metadata. */
+export type RedditExtra = {
+  /** Subreddit the post belongs to, without the `r/` prefix. */
+  subreddit?: string;
+  /** Net score (upvotes minus downvotes); can be negative. */
+  score?: number;
+  /** Fraction of votes that are upvotes, from 0 to 1. */
+  upvoteRatio?: number;
+  /** Path of the post on reddit.com, starting with `/r/`. */
+  permalink?: string;
+};
+
+/** TikTok-specific metadata. */
+export type TiktokExtra = {
+  /** Times the video was added to favorites. */
+  saveCount?: number;
+  /** Title of the sound used. */
+  musicTitle?: string;
+  /** Author of the sound used. */
+  musicAuthor?: string;
+  /** Two-letter region the video was created in. */
+  region?: string;
+  /** Video duration in seconds. */
+  durationSeconds?: number;
+};
+
+/** X (Twitter)-specific metadata. */
+export type TwitterExtra = {
+  /** BCP 47 language tag detected for the tweet. */
+  lang?: string;
+};
+
+/** Instagram-specific metadata. */
+export type InstagramExtra = {
+  /** Product type, e.g. `clips` for a reel or `feed` for a feed post. */
+  productType?: string;
+  /** Whether the account hid its like and view counts. */
+  countsHidden?: boolean;
+  /** Tagged location name, when present. */
+  location?: string;
+};
+
+/** YouTube-specific metadata. */
+export type YoutubeExtra = {
+  /** Channel id (`UC…`) of the uploader. */
+  channelId?: string;
+  /** Video duration in seconds. */
+  durationSeconds?: number;
+  /** Video keywords. */
+  keywords?: string[];
+};
+
+/** SoundCloud-specific metadata. */
+export type SoundcloudExtra = {
+  /** Track genre, when set. */
+  genre?: string;
+  /** Track license, e.g. `all-rights-reserved`. */
+  license?: string;
+  /** Track duration in seconds. */
+  durationSeconds?: number;
+};
+
+/** Pinterest-specific metadata. */
+export type PinterestExtra = {
+  /** Times the pin was saved (repinned). */
+  saveCount?: number;
+  /** Dominant color of the pin image, as a hex string. */
+  dominantColor?: string;
+  /** Outbound link the pin points to, when set. */
+  outboundLink?: string;
+};
+
+/** The result of resolving a post: its platform, id, media items and metadata. */
+export type PostfetchResult =
+  | PlatformResult<"facebook", never>
+  | PlatformResult<"instagram", InstagramExtra>
+  | PlatformResult<"pinterest", PinterestExtra>
+  | PlatformResult<"reddit", RedditExtra>
+  | PlatformResult<"soundcloud", SoundcloudExtra>
+  | PlatformResult<"tiktok", TiktokExtra>
+  | PlatformResult<"twitter", TwitterExtra>
+  | PlatformResult<"youtube", YoutubeExtra>;
+
+/** One platform's variant of a {@link PostfetchResult}, carrying that platform's `extra` metadata shape. */
+export type PlatformResult<P extends Platform, Extra> = {
   /** Suggested filename when zipping every item. */
   archiveFilename: string;
   /** Platform post/media id. */
@@ -45,7 +165,12 @@ export type PostfetchResult = {
   /** The post's media, in order. */
   items: MediaItem[];
   /** The platform the post came from. */
-  platform: Platform;
+  platform: P;
+  /** Normalized post metadata, when any was available. */
+  metadata?: PostMetadata & {
+    /** Platform-specific metadata not covered by the normalized fields. */
+    extra?: Extra;
+  };
 };
 
 export type Net = (url: string, init?: RequestInit, attempts?: number) => Promise<Response>;
@@ -112,6 +237,33 @@ export function string(value: unknown): string | null {
 
 export function number(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+export function bool(value: unknown): boolean | undefined {
+  return typeof value === "boolean" ? value : undefined;
+}
+
+export function count(value: unknown): number | undefined {
+  if (typeof value === "number" && Number.isInteger(value) && value >= 0) {
+    return value;
+  }
+  if (typeof value === "string" && /^\d+$/.test(value.trim())) {
+    return Number(value.trim());
+  }
+  return undefined;
+}
+
+export function isoFromEpochSeconds(value: unknown): string | undefined {
+  const seconds = count(value);
+  return seconds === undefined ? undefined : new Date(seconds * 1000).toISOString();
+}
+
+export function isoFromDateString(value: unknown): string | undefined {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+  const time = Date.parse(value);
+  return Number.isNaN(time) ? undefined : new Date(time).toISOString();
 }
 
 export function asUrl(value: string): URL {
