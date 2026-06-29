@@ -6,9 +6,11 @@ import {
   isoFromEpochSeconds,
   number,
   object,
+  PostfetchError,
   string,
   type InstagramExtra,
   type PostMetadata,
+  type PostfetchReason,
   type ResolveContext,
   type Net,
   type Json,
@@ -62,13 +64,59 @@ export async function resolveInstagram(input: ResolveContext): Promise<Postfetch
     (await embedMedia(input.net, code)) ??
     (await graphqlMedia(input.net, code));
   if (!media) {
-    throw new Error("Instagram media not found");
+    throw await instagramUnavailable(input.net, code);
   }
   const items = mediaItems(media, code, input.preferredWidth);
   if (items.length === 0) {
     throw new Error("Instagram media url not found");
   }
   return { archiveFilename: filename(`instagram_${code}.zip`), id: code, items, metadata: instagramMetadata(media), platform: "instagram" };
+}
+
+async function instagramUnavailable(net: Net, code: string): Promise<PostfetchError> {
+  const url = new URL("https://i.instagram.com/api/v1/oembed/");
+  url.searchParams.set("url", `https://www.instagram.com/p/${code}/`);
+  const response = await net(url.href, { headers: mobileHeaders() }, 1).catch(() => null);
+  const body = response ? await response.text().catch(() => "") : "";
+  const reason = instagramUnavailableReason(response?.status ?? 0, body);
+  return new PostfetchError(reasonStatus(reason), `Instagram post unavailable: ${reason}`, reason);
+}
+
+// Classifies why the post is gone from the oembed endpoint, which returns a
+// telling status and body (404 when removed; 400 with a MIN_AGE_ACCOUNT block
+// for 18+ accounts) while the media endpoints just come back empty.
+export function instagramUnavailableReason(status: number, body: string): PostfetchReason {
+  if (status === 404) {
+    return "notFound";
+  }
+  if (status !== 0 && status < 400) {
+    return "unavailable";
+  }
+  if (/MIN_AGE_ACCOUNT|under 18/i.test(body)) {
+    return "ageRestricted";
+  }
+  if (/private account|"is_private":\s*true|account is private/i.test(body)) {
+    return "private";
+  }
+  if (/log in|login_required|not logged/i.test(body)) {
+    return "loginRequired";
+  }
+  return "unavailable";
+}
+
+function reasonStatus(reason: PostfetchReason): number {
+  switch (reason) {
+    case "ageRestricted":
+      return 451;
+    case "private":
+      return 403;
+    case "loginRequired":
+      return 401;
+    case "rateLimited":
+      return 429;
+    default:
+      return 404;
+  }
 }
 
 export function instagramMetadata(media: Json): PostMetadata & { extra?: InstagramExtra } {

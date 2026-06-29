@@ -181,6 +181,20 @@ export type ResolveContext = {
   url: string;
 };
 
+/**
+ * Why a post could not be resolved, when the platform makes the cause knowable.
+ * Lets callers tell a user-facing limitation (age-gated, private, removed) apart
+ * from a transient/technical failure.
+ */
+export type PostfetchReason =
+  | "ageRestricted"
+  | "private"
+  | "loginRequired"
+  | "deleted"
+  | "notFound"
+  | "rateLimited"
+  | "unavailable";
+
 /** An error carrying an HTTP status, so adapters can map failures onto responses. */
 export class PostfetchError extends Error {
   /**
@@ -188,11 +202,14 @@ export class PostfetchError extends Error {
    *
    * @param status HTTP status that best describes the failure.
    * @param message Human-readable message.
+   * @param reason Machine-readable cause, when the platform makes it knowable.
    */
   constructor(
     /** HTTP status that best describes the failure. */
     readonly status: number,
     message: string,
+    /** Machine-readable cause, when the platform makes it knowable. */
+    readonly reason?: PostfetchReason,
   ) {
     super(message);
     this.name = "PostfetchError";
