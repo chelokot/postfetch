@@ -12,8 +12,9 @@ describe("instagram unavailable reason", () => {
     expect(instagramUnavailableReason(400, body)).toBe("ageRestricted");
   });
 
-  test("maps a 404 to a removed post", () => {
+  test("maps a 404 to a removed post and a 429 to throttling", () => {
     expect(instagramUnavailableReason(404, "")).toBe("notFound");
+    expect(instagramUnavailableReason(429, "")).toBe("rateLimited");
   });
 
   test("detects private accounts and login walls", () => {

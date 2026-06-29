@@ -79,15 +79,22 @@ async function instagramUnavailable(net: Net, code: string): Promise<PostfetchEr
   const response = await net(url.href, { headers: mobileHeaders() }, 1).catch(() => null);
   const body = response ? await response.text().catch(() => "") : "";
   const reason = instagramUnavailableReason(response?.status ?? 0, body);
-  return new PostfetchError(reasonStatus(reason), `Instagram post unavailable: ${reason}`, reason);
+  // Carry the oembed status so an unclassified failure still leaves a raw clue
+  // (200 = post is public but no media could be parsed; 429 = throttled; …).
+  const probe = response ? `oembed ${response.status}` : "oembed unreachable";
+  return new PostfetchError(reasonStatus(reason), `Instagram post unavailable: ${reason} (${probe})`, reason);
 }
 
 // Classifies why the post is gone from the oembed endpoint, which returns a
-// telling status and body (404 when removed; 400 with a MIN_AGE_ACCOUNT block
-// for 18+ accounts) while the media endpoints just come back empty.
+// telling status and body (404 when removed; 429 when throttled; 400 with a
+// MIN_AGE_ACCOUNT block for 18+ accounts) while the media endpoints just come
+// back empty.
 export function instagramUnavailableReason(status: number, body: string): PostfetchReason {
   if (status === 404) {
     return "notFound";
+  }
+  if (status === 429) {
+    return "rateLimited";
   }
   if (status !== 0 && status < 400) {
     return "unavailable";
