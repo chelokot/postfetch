@@ -27,10 +27,10 @@ export async function resolveReddit(input: ResolveContext): Promise<PostfetchRes
   const id = await postId(input.net, input.url);
   const token = await appToken(input.net);
   const post = await fetchPost(input.net, token, id);
+  // A text post is a valid result with metadata and no media — fetchPost has
+  // already thrown if the post itself is missing, so empty items here mean a
+  // self/text post, not a failure.
   const items = await mediaItems(input, post, id);
-  if (items.length === 0) {
-    throw new Error("Reddit media not found");
-  }
   return { archiveFilename: filename(`reddit_${id}.zip`), id, items, metadata: redditMetadata(post), platform: "reddit" };
 }
 
