@@ -30,6 +30,7 @@ export type {
   Platform,
   PlatformResult,
   PostAuthor,
+  PostfetchReason,
   PostfetchResult,
   PostMetadata,
   RedditExtra,
