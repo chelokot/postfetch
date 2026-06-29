@@ -56,9 +56,13 @@ async function fetchVideoPage(
   return { cookie: cookieHeader(page.headers), item: itemStruct(await page.text()) };
 }
 
+export function isShortlinkHost(hostname: string): boolean {
+  return hostname === "vm.tiktok.com" || hostname === "vt.tiktok.com";
+}
+
 async function followShortlink(net: Net, userAgent: string, input: string): Promise<string> {
   const url = asUrl(input);
-  if (!url.hostname.includes("vt.tiktok.com")) {
+  if (!isShortlinkHost(url.hostname)) {
     return input;
   }
   const response = await net(input, { headers: { "user-agent": userAgent }, redirect: "manual" }, 1);

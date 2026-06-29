@@ -63,8 +63,10 @@ jobs:
     # One job per platform for at-a-glance visibility — a red `live (youtube)`
     # is unmistakably YouTube's datacenter-IP bot gate, not a broken resolver.
     # Guards the original regression (a reel resolving to its cover image) and
-    # proves the rotating fingerprints are not all blocked. Datacenter IPs are
-    # sometimes throttled, so these jobs report without gating merges.
+    # proves the rotating fingerprints are not all blocked. Runner egress is a
+    # datacenter IP that some platforms gate, so traffic goes through a free
+    # Cloudflare WARP proxy (userspace wgcf + wireproxy, no privileges) to look
+    # like a consumer IP; the jobs still report without gating merges.
     name: live (${{ matrix.platform }})
     runs-on: ubuntu-latest
     continue-on-error: true
@@ -78,7 +80,26 @@ jobs:
         with:
           bun-version: 1.3.14
       - run: bun install --frozen-lockfile
-      - run: bun test packages/core/test/live.test.ts
+      - name: Resolve through a Cloudflare WARP proxy
         env:
           POSTFETCH_LIVE: "1"
           POSTFETCH_LIVE_PLATFORM: ${{ matrix.platform }}
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          curl -fsSL "https://github.com/ViRb3/wgcf/releases/download/v2.2.31/wgcf_2.2.31_linux_amd64" -o wgcf
+          curl -fsSL "https://github.com/pufferffish/wireproxy/releases/download/v1.1.2/wireproxy_linux_amd64.tar.gz" | tar -xz wireproxy
+          chmod +x wgcf wireproxy
+          ./wgcf register --accept-tos
+          ./wgcf generate
+          printf '\n[http]\nBindAddress = 127.0.0.1:8080\n' >>wgcf-profile.conf
+          ./wireproxy --config wgcf-profile.conf &
+          trap 'kill $! 2>/dev/null || true' EXIT
+          for _ in $(seq 1 30); do
+            curl -fsS -x http://127.0.0.1:8080 https://www.cloudflare.com/cdn-cgi/trace 2>/dev/null | grep -q 'warp=on' && break
+            sleep 2
+          done
+          curl -fsS -x http://127.0.0.1:8080 https://www.cloudflare.com/cdn-cgi/trace | grep '^warp='
+          export HTTP_PROXY=http://127.0.0.1:8080 HTTPS_PROXY=http://127.0.0.1:8080
+          cd "$GITHUB_WORKSPACE"
+          bun test packages/core/test/live.test.ts
