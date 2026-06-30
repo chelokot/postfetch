@@ -110,7 +110,8 @@ async function followShortlink(net: Net, userAgent: string, input: string): Prom
 }
 
 function videoId(input: string): string | null {
-  return asUrl(input).pathname.match(/video\/(\d+)/)?.[1] ?? null;
+  // Photo (slideshow) posts share the video id namespace under /photo/<id>.
+  return asUrl(input).pathname.match(/(?:video|photo)\/(\d+)/)?.[1] ?? null;
 }
 
 function itemStruct(html: string): Json {
