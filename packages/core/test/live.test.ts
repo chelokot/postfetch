@@ -157,6 +157,16 @@ describe("live network", () => {
     30_000,
   );
 
+  test.skipIf(!runs("tiktok"))(
+    "tiktok photo post resolves to its slideshow images",
+    async () => {
+      const result = await postfetch("https://www.tiktok.com/@lololokek0/photo/7657068534756838664");
+      expect(result.platform).toBe("tiktok");
+      expect(result.items.some((item) => item.kind === "image")).toBe(true);
+    },
+    30_000,
+  );
+
   // watch, shorts and youtu.be all collapse to the same video id, and each
   // shape goes through the same session bootstrap behind YouTube's bot gate.
   test.skipIf(!runs("youtube"))(
