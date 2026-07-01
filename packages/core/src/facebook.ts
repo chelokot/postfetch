@@ -1,10 +1,14 @@
-import { asUrl, filename, type ResolveContext, type Json, type Net, type PostfetchResult, type MediaItem } from "./internal";
+import { asUrl, count, filename, isoFromEpochSeconds, type PostMetadata, type ResolveContext, type Json, type Net, type PostfetchResult, type MediaItem } from "./internal";
 import { browserUserAgent } from "./fingerprint";
 
 export async function resolveFacebook(input: ResolveContext): Promise<PostfetchResult> {
   const canonical = await canonicalUrl(input.net, input.url);
   const id = facebookId(canonical) ?? facebookId(input.url) ?? "video";
-  const url = await embedVideo(input.net, canonical);
+  // The embed player only exposes /share/v/ videos; reels (and anything it
+  // misses) come from the watch page, which the &_rdr flag serves logged-out.
+  const embed = await embedVideo(input.net, canonical);
+  const watch = !embed && /^\d+$/.test(id) ? await watchVideo(input.net, id) : null;
+  const url = embed ?? watch?.url ?? null;
   if (!url) {
     throw new Error("Facebook video not found");
   }
@@ -17,7 +21,7 @@ export async function resolveFacebook(input: ResolveContext): Promise<PostfetchR
     platform: "facebook",
     url,
   };
-  return { archiveFilename: filename(`facebook_${id}.zip`), id, items: [item], platform: "facebook" };
+  return { archiveFilename: filename(`facebook_${id}.zip`), id, items: [item], metadata: watch?.metadata, platform: "facebook" };
 }
 
 function navigationHeaders(): Record<string, string> {
@@ -47,6 +51,39 @@ async function embedVideo(net: Net, canonical: string): Promise<string | null> {
   }
   const html = await response.text();
   return source(html, "hd_src") ?? source(html, "sd_src");
+}
+
+// The logged-out watch page (with &_rdr) embeds the progressive video URLs in
+// its ScheduledServerJS blocks; these are the same fields yt-dlp reads.
+async function watchVideo(net: Net, id: string): Promise<{ url: string; metadata: PostMetadata } | null> {
+  // Without the document Accept header Facebook serves a JS shell without the
+  // media JSON, so ask for HTML explicitly here.
+  const headers = { ...navigationHeaders(), accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8" };
+  const response = await net(`https://www.facebook.com/watch/?v=${id}&_rdr`, { headers });
+  if (!response.ok) {
+    return null;
+  }
+  const html = await response.text();
+  const url =
+    source(html, "playable_url_quality_hd") ??
+    source(html, "browser_native_hd_url") ??
+    source(html, "playable_url") ??
+    source(html, "browser_native_sd_url");
+  return url ? { url, metadata: watchMetadata(html) } : null;
+}
+
+// Only the fields that can be read unambiguously from the flat page: the
+// caption (creation_story) and the reaction/comment/share counts appear in
+// shapes shared with related videos and comment threads, so they are skipped
+// rather than risk attributing the wrong value.
+function watchMetadata(html: string): PostMetadata {
+  const owner = html.match(/"name":("(?:\\.|[^"\\])*"),"__isVideoOwner"/);
+  const name = owner ? (JSON.parse(owner[1]) as string) : undefined;
+  return {
+    author: name ? { name } : undefined,
+    createdAt: isoFromEpochSeconds(html.match(/"publish_time":(\d+)/)?.[1]),
+    viewCount: count(html.match(/"video_view_count":(\d+)/)?.[1]),
+  };
 }
 
 function source(html: string, key: string): string | null {
