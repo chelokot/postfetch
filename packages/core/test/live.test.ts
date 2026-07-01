@@ -216,6 +216,19 @@ describe("live network", () => {
     30_000,
   );
 
+  test.skipIf(!runs("facebook"))(
+    "facebook reel resolves to a video via the watch page",
+    async () => {
+      const result = await postfetch("https://www.facebook.com/share/r/18z2cXtUGM/");
+      expect(result.platform).toBe("facebook");
+      expect(result.items[0]?.kind).toBe("video");
+      expect(result.items[0]?.mime).toBe("video/mp4");
+      expect(result.metadata?.author?.name).toBeTruthy();
+      expect(typeof result.metadata?.viewCount).toBe("number");
+    },
+    30_000,
+  );
+
   // The same tweet can arrive as /i/status, /handle/status, with a /video/N
   // suffix, or with a tracking query — every shape collapses to the status id.
   test.skipIf(!runs("twitter"))(
