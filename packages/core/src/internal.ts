@@ -1,5 +1,5 @@
 /** A platform that {@link postfetch} can resolve. */
-export type Platform = "facebook" | "instagram" | "pinterest" | "reddit" | "soundcloud" | "tiktok" | "twitter" | "youtube";
+export type Platform = "facebook" | "instagram" | "linkedin" | "pinterest" | "reddit" | "soundcloud" | "tiktok" | "twitter" | "youtube";
 
 /** The kind of a {@link MediaItem}. */
 export type MediaKind = "audio" | "image" | "video";
@@ -149,6 +149,7 @@ export type PinterestExtra = {
 export type PostfetchResult =
   | PlatformResult<"facebook", never>
   | PlatformResult<"instagram", InstagramExtra>
+  | PlatformResult<"linkedin", never>
   | PlatformResult<"pinterest", PinterestExtra>
   | PlatformResult<"reddit", RedditExtra>
   | PlatformResult<"soundcloud", SoundcloudExtra>

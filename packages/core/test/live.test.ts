@@ -13,6 +13,11 @@ function runs(name: string): boolean {
 }
 
 const reel = "https://www.instagram.com/reel/DZ0ixNxtvYq/";
+const reportedInstagramReel = "https://www.instagram.com/reel/Dau5MYHtudW/?igsh=MWh1aTRndjRtY2Z0";
+const reportedInstagramPhotos = [
+  "https://www.instagram.com/p/Da5HvHpSSse/?igsh=MWM1eXNjcWhwejAydA==",
+  "https://www.instagram.com/p/DacyagKRdrE/?igsh=Ym5ocmh2bnZiMTg5",
+];
 
 describe("live network", () => {
   test.skipIf(!runs("instagram"))(
@@ -26,6 +31,37 @@ describe("live network", () => {
       expect(result.metadata?.createdAt).toBeTruthy();
     },
     30_000,
+  );
+
+  test.skipIf(!runs("instagram"))(
+    "reported instagram reel resolves to its video",
+    async () => {
+      const result = await postfetch(reportedInstagramReel);
+      expect(result.platform).toBe("instagram");
+      expect(result.items[0]?.kind).toBe("video");
+      expect(result.items[0]?.mime).toBe("video/mp4");
+      expect(result.metadata?.text).toContain("САМОГОН");
+    },
+    30_000,
+  );
+
+  test.skipIf(!runs("instagram"))(
+    "reported instagram photo posts remain downloadable",
+    async () => {
+      for (const url of reportedInstagramPhotos) {
+        const result = await postfetch(url);
+        expect(result.platform).toBe("instagram");
+        expect(result.metadata?.author?.handle).toBe("pibblestack.studio");
+        expect(result.items.length).toBeGreaterThan(0);
+        for (const item of result.items) {
+          expect(item.kind).toBe("image");
+          expect(item.mime).toBe("image/jpeg");
+          const bytes = new Uint8Array(await (await download(item)).arrayBuffer());
+          expect([...bytes.slice(0, 3)]).toEqual([0xff, 0xd8, 0xff]);
+        }
+      }
+    },
+    60_000,
   );
 
   test.skipIf(!runs("instagram"))(
@@ -158,6 +194,23 @@ describe("live network", () => {
   );
 
   test.skipIf(!runs("tiktok"))(
+    "reported tiktok vm shortlink resolves to a video",
+    async () => {
+      const result = await postfetch("https://vm.tiktok.com/ZN81BamTW/");
+      expect(result.platform).toBe("tiktok");
+      expect(result.items[0]?.kind).toBe("video");
+      expect(result.metadata?.text).toContain("котлеты");
+      const item = result.items[0];
+      if (!item) {
+        throw new Error("no item");
+      }
+      const bytes = new Uint8Array(await (await download(item)).arrayBuffer());
+      expect(String.fromCharCode(bytes[4], bytes[5], bytes[6], bytes[7])).toBe("ftyp");
+    },
+    30_000,
+  );
+
+  test.skipIf(!runs("tiktok"))(
     "tiktok photo post resolves to its slideshow images",
     async () => {
       const result = await postfetch("https://www.tiktok.com/@lololokek0/photo/7657068534756838664");
@@ -212,6 +265,46 @@ describe("live network", () => {
       expect(result.platform).toBe("facebook");
       expect(result.items[0]?.kind).toBe("video");
       expect(result.items[0]?.mime).toBe("video/mp4");
+    },
+    30_000,
+  );
+
+  test.skipIf(!runs("linkedin"))(
+    "linkedin public post resolves its highest-bitrate video and metadata",
+    async () => {
+      const result = await postfetch("https://www.linkedin.com/posts/microsoft-security_watch-the-video-activity-7163247035113013249-ltdX");
+      expect(result.platform).toBe("linkedin");
+      expect(result.items[0]?.kind).toBe("video");
+      expect(result.items[0]?.mime).toBe("video/mp4");
+      expect(result.metadata?.author).toMatchObject({ handle: "microsoft-security", name: "Microsoft Security" });
+      expect(result.metadata?.text).toContain("Zero Trust");
+      expect(result.metadata?.createdAt).toBe("2024-02-13T19:06:19.833Z");
+      expect(typeof result.metadata?.likeCount).toBe("number");
+      const item = result.items[0];
+      if (!item) {
+        throw new Error("no item");
+      }
+      const bytes = new Uint8Array(await (await download(item)).arrayBuffer());
+      expect(String.fromCharCode(bytes[4], bytes[5], bytes[6], bytes[7])).toBe("ftyp");
+    },
+    30_000,
+  );
+
+  test.skipIf(!runs("linkedin"))(
+    "linkedin public image post resolves its image and metadata",
+    async () => {
+      const result = await postfetch("https://www.linkedin.com/posts/linkedin_how-linkedin-built-the-engineering-infrastructure-activity-7137778336952438784-iDcc");
+      expect(result.platform).toBe("linkedin");
+      expect(result.items[0]?.kind).toBe("image");
+      expect(result.items[0]?.mime).toBe("image/jpeg");
+      expect(result.metadata?.author).toMatchObject({ handle: "linkedin", name: "LinkedIn" });
+      expect(result.metadata?.text).toContain("knowledge sharing");
+      const item = result.items[0];
+      if (!item) {
+        throw new Error("no item");
+      }
+      const bytes = new Uint8Array(await (await download(item)).arrayBuffer());
+      expect([...bytes.slice(0, 3)]).toEqual([0xff, 0xd8, 0xff]);
     },
     30_000,
   );

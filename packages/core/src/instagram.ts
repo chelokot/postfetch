@@ -58,11 +58,21 @@ function embedHeaders(): Record<string, string> {
 
 export async function resolveInstagram(input: ResolveContext): Promise<PostfetchResult> {
   const code = shortcode(input.url);
-  const media =
-    (await pageMedia(input.net, code, input.preferredWidth)) ??
-    (await mobileMedia(input.net, code, input.preferredWidth)) ??
-    (await embedMedia(input.net, code)) ??
-    (await graphqlMedia(input.net, code));
+  const videoRequired = /\/(?:reel|reels|tv)\//.test(asUrl(input.url).pathname);
+  const resolvers: Array<() => Promise<Json | null>> = [
+    () => pageMedia(input.net, code, input.preferredWidth),
+    () => mobileMedia(input.net, code, input.preferredWidth),
+    () => embedMedia(input.net, code),
+    () => graphqlMedia(input.net, code),
+  ];
+  let media: Json | null = null;
+  for (const resolve of resolvers) {
+    const candidate = await resolve();
+    if (candidate && (!videoRequired || mediaItems(candidate, code, input.preferredWidth).some((item) => item.kind === "video"))) {
+      media = candidate;
+      break;
+    }
+  }
   if (!media) {
     throw await instagramUnavailable(input.net, code);
   }
@@ -301,23 +311,20 @@ async function graphqlMedia(net: Net, code: string): Promise<Json | null> {
   }
   const body = new URLSearchParams({
     ...params.body,
-    doc_id: "8845758582119845",
+    av: "0",
+    doc_id: "26130443479876713",
     fb_api_caller_class: "RelayModern",
-    fb_api_req_friendly_name: "PolarisPostActionLoadPostQueryQuery",
+    fb_api_req_friendly_name: "PolarisPostRootQuery",
     server_timestamps: "true",
-    variables: JSON.stringify({
-      fetch_tagged_user_count: null,
-      hoisted_comment_id: null,
-      hoisted_reply_id: null,
-      shortcode: code,
-    }),
+    variables: JSON.stringify({ shortcode: code }),
   });
   const response = await net("https://www.instagram.com/graphql/query", {
     body,
     headers: {
       ...embedHeaders(),
       ...params.headers,
-      "X-FB-Friendly-Name": "PolarisPostActionLoadPostQueryQuery",
+      "X-FB-Friendly-Name": "PolarisPostRootQuery",
+      "X-Requested-With": "XMLHttpRequest",
       "content-type": "application/x-www-form-urlencoded",
     },
     method: "POST",
@@ -344,14 +351,14 @@ async function graphqlParams(net: Net, code: string): Promise<{ body: Record<str
   const push = entryObject("InstagramWebPushInfo", html);
   const lsd = entryObject("LSD", html)?.token ?? randomToken();
   const csrf = entryObject("InstagramSecurityConfig", html)?.csrf_token;
-  const cookie = [
-    csrf && `csrftoken=${csrf}`,
-    polaris?.device_id && `ig_did=${polaris.device_id}`,
-    polaris?.machine_id && `mid=${polaris.machine_id}`,
-    "wd=1280x720",
-    "dpr=2",
-    "ig_nrcb=1",
-  ].filter((value): value is string => typeof value === "string" && value.length > 0).join("; ");
+  const cookie = instagramCookies(response.headers, {
+    csrftoken: string(csrf),
+    dpr: "2",
+    ig_did: string(polaris?.device_id),
+    ig_nrcb: "1",
+    mid: string(polaris?.machine_id),
+    wd: "1280x720",
+  });
   return {
     headers: {
       "X-CSRFToken": string(csrf) ?? "",
@@ -386,6 +393,12 @@ async function graphqlParams(net: Net, code: string): Promise<{ body: Record<str
 }
 
 function gqlShortcodeMedia(data: Json): Json | null {
+  const webInfo = object(data.xdt_api__v1__media__shortcode__web_info) ? data.xdt_api__v1__media__shortcode__web_info : null;
+  const webItems = webInfo && Array.isArray(webInfo.items) ? webInfo.items : [];
+  const webMedia = webItems[0];
+  if (object(webMedia)) {
+    return webMedia;
+  }
   const media = data.gql_data && object(data.gql_data)
     ? data.gql_data.shortcode_media ?? data.gql_data.xdt_shortcode_media
     : data.shortcode_media ?? data.xdt_shortcode_media;
@@ -409,6 +422,25 @@ function mediaItems(media: Json, code: string, preferredWidth: number): MediaIte
     return newItems;
   }
   return instagramItem(media, code, null, preferredWidth);
+}
+
+function instagramCookies(headers: Headers, fallback: Record<string, string | null>): string {
+  const getter = (headers as Headers & { getSetCookie?: () => string[] }).getSetCookie;
+  const raw = typeof getter === "function" ? getter.call(headers) : headers.get("set-cookie")?.split(/,(?=[^;]+?=)/) ?? [];
+  const cookies = new Map<string, string>();
+  for (const value of raw) {
+    const pair = value.split(";", 1)[0]?.trim();
+    const separator = pair?.indexOf("=") ?? -1;
+    if (pair && separator > 0) {
+      cookies.set(pair.slice(0, separator), pair.slice(separator + 1));
+    }
+  }
+  for (const [name, value] of Object.entries(fallback)) {
+    if (value && !cookies.has(name)) {
+      cookies.set(name, value);
+    }
+  }
+  return [...cookies].map(([name, value]) => `${name}=${value}`).join("; ");
 }
 
 function instagramItem(media: Json, code: string, index: number | null, preferredWidth: number): MediaItem[] {
