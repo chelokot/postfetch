@@ -42,7 +42,7 @@ if (result.items.length === 1) {
 | Export | Signature | Notes |
 | --- | --- | --- |
 | `postfetch` | `(url, options?) => Promise<PostfetchResult>` | Detects the platform and resolves its media. |
-| `detect` | `(url) => Platform` | `"facebook" \| "instagram" \| "pinterest" \| "reddit" \| "soundcloud" \| "tiktok" \| "twitter" \| "youtube"`; throws on anything else. |
+| `detect` | `(url) => Platform` | `"facebook" \| "instagram" \| "linkedin" \| "pinterest" \| "reddit" \| "soundcloud" \| "tiktok" \| "twitter" \| "youtube"`; throws on anything else. |
 | `download` | `(item, options?) => Promise<Response>` | Fetches one item from its CDN with the right headers. |
 | `archive` | `(result, options?) => Promise<{ bytes, filename, mime }>` | Zips every item (store mode, in-process). |
 | `toResponse` | `(result, options?) => Promise<Response>` | One item → streamed file; many → zip. Used by the server and templates. |
@@ -94,6 +94,8 @@ A single post is written as one file, carousels and slideshows as a `.zip`; the 
 | TikTok | image / slideshow post | `zip` of images (+ audio) |
 | Instagram | reel, video, or photo | `video/mp4` or `image/jpeg` |
 | Instagram | carousel | `zip` of images / videos |
+| LinkedIn | public post with video | highest-bitrate `video/mp4` |
+| LinkedIn | public post with an image | `image/jpeg` |
 | YouTube | `watch`, `shorts`, `live`, `embed`, `youtu.be` | up to 1080p `video/mp4` (audio remuxed) |
 | Facebook | reel, video, `/share/v/…`, `fb.watch` | `video/mp4` |
 | X (Twitter) | tweet / status with video, gif, or photos | `video/mp4`, `image/jpeg`, or `zip` |
@@ -110,7 +112,7 @@ YouTube and Reddit hand out HD video and audio as separate DASH streams; both ar
 
 A single hard-coded user-agent is the fastest way to get the whole fleet banned at once. Every request instead draws a **fresh, internally-consistent fingerprint** from a pool ([`fingerprint.ts`](packages/core/src/fingerprint.ts)): a Chrome UA always carries a matching `sec-ch-ua` version and the right platform token; the Instagram mobile path rotates real app UAs; YouTube rotates matched Innertube client versions. Consistency is unit-tested, and a live test rotates the fingerprint repeatedly to confirm the combinations aren't all blocked.
 
-This matters because, logged out, Instagram fingerprints the client: `api/v1/media/info` and `graphql/query` return `403`, and the embed only carries the cover image — so the reel video lives **inline in the post page HTML**, reachable only with a consistent browser fingerprint. That path is what the core resolves first.
+This matters because, logged out, Instagram fingerprints the client: `api/v1/media/info` can return `403`, and the embed may carry only the cover image. The core reads inline page media first, but never accepts a cover as the result of an explicit reel URL; it continues through the current logged-out GraphQL query until it finds a real video.
 
 ## Layout
 

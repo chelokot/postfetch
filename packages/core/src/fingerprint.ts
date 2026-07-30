@@ -32,6 +32,10 @@ export type BrowserFingerprint = {
   userAgent: string;
 };
 
+export type NavigationHeaders = Record<string, string> & {
+  "user-agent": string;
+};
+
 export function browserFingerprint(): BrowserFingerprint {
   const version = pick(chromeVersions);
   const platform = pick(desktopPlatforms);
@@ -43,20 +47,26 @@ export function browserFingerprint(): BrowserFingerprint {
   };
 }
 
-export function navigationHeaders(): Record<string, string> {
-  const fingerprint = browserFingerprint();
+function baseNavigationHeaders(userAgent: string, acceptLanguage: string): NavigationHeaders {
   return {
     accept: "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-    "accept-language": fingerprint.acceptLanguage,
-    "sec-ch-ua": fingerprint.secChUa,
-    "sec-ch-ua-mobile": "?0",
-    "sec-ch-ua-platform": fingerprint.secChUaPlatform,
+    "accept-language": acceptLanguage,
     "sec-fetch-dest": "document",
     "sec-fetch-mode": "navigate",
     "sec-fetch-site": "none",
     "sec-fetch-user": "?1",
     "upgrade-insecure-requests": "1",
-    "user-agent": fingerprint.userAgent,
+    "user-agent": userAgent,
+  };
+}
+
+export function navigationHeaders(): NavigationHeaders {
+  const fingerprint = browserFingerprint();
+  return {
+    ...baseNavigationHeaders(fingerprint.userAgent, fingerprint.acceptLanguage),
+    "sec-ch-ua": fingerprint.secChUa,
+    "sec-ch-ua-mobile": "?0",
+    "sec-ch-ua-platform": fingerprint.secChUaPlatform,
   };
 }
 
@@ -68,6 +78,10 @@ export function firefoxUserAgent(): string {
   const platform = pick(desktopPlatforms);
   const version = pick(firefoxVersions);
   return `Mozilla/5.0 (${platform.uaToken}; rv:${version}.0) Gecko/20100101 Firefox/${version}.0`;
+}
+
+export function firefoxNavigationHeaders(userAgent = firefoxUserAgent()): NavigationHeaders {
+  return baseNavigationHeaders(userAgent, pick(acceptLanguages));
 }
 
 export function instagramAppUserAgent(): string {

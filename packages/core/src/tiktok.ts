@@ -14,27 +14,26 @@ import {
   type PostfetchResult,
   type MediaItem,
 } from "./internal";
-import { browserUserAgent, firefoxUserAgent } from "./fingerprint";
+import {
+  browserUserAgent,
+  firefoxNavigationHeaders,
+  navigationHeaders,
+} from "./fingerprint";
 
 const marker = '<script id="__UNIVERSAL_DATA_FOR_REHYDRATION__" type="application/json">';
+const pageAttemptCount = 12;
 
 export async function resolveTiktok(input: ResolveContext): Promise<PostfetchResult> {
-  const userAgent = browserUserAgent();
-  const pageUrl = await followShortlink(input.net, userAgent, input.url);
+  const pageUrl = await followShortlink(input.net, browserUserAgent(), input.url);
   const id = videoId(pageUrl);
   if (!id) {
     throw new Error("TikTok video id not found");
   }
-  const page = await fetchVideoPage(input.net, id, userAgent).catch((error: unknown) => {
-    if (!recoverablePageError(error)) {
-      throw error;
-    }
-    return fetchVideoPage(input.net, id, firefoxUserAgent());
-  });
+  const page = await videoPage(input.net, id, asUrl(pageUrl).pathname.includes("/photo/"));
   const user = author(page.item) ?? username(pageUrl) ?? "i";
   const headers: Record<string, string> = {
     referer: `https://www.tiktok.com/@${encodeURIComponent(user)}/video/${encodeURIComponent(id)}`,
-    "user-agent": userAgent,
+    "user-agent": page.userAgent,
   };
   if (page.cookie) {
     headers.cookie = page.cookie;
@@ -44,6 +43,41 @@ export async function resolveTiktok(input: ResolveContext): Promise<PostfetchRes
     throw new Error("TikTok media not found");
   }
   return { archiveFilename: filename(`tiktok_${user}_${id}.zip`), id, items, metadata: tiktokMetadata(page.item), platform: "tiktok" };
+}
+
+async function videoPage(
+  net: Net,
+  id: string,
+  photo: boolean,
+): Promise<{ item: Json; cookie: string | null; userAgent: string }> {
+  for (let attempt = 0; attempt < pageAttemptCount; attempt += 1) {
+    const baseHeaders = attempt % 2 === 0 ? navigationHeaders() : firefoxNavigationHeaders();
+    const userAgent = baseHeaders["user-agent"];
+    const headers = {
+      ...baseHeaders,
+      referer: "https://www.tiktok.com/",
+      "sec-fetch-site": "same-origin",
+    };
+    try {
+      return { ...(await fetchVideoPage(net, id, headers)), userAgent };
+    } catch (error) {
+      if (!recoverablePageError(error)) {
+        throw error;
+      }
+    }
+  }
+
+  if (!photo) {
+    throw new Error("TikTok hydration not found");
+  }
+  const baseHeaders = navigationHeaders();
+  const userAgent = baseHeaders["user-agent"];
+  const headers = {
+    ...baseHeaders,
+    referer: "https://www.tiktok.com/",
+    "sec-fetch-site": "same-origin",
+  };
+  return { ...(await fetchEmbedPage(net, id, headers)), userAgent };
 }
 
 export function tiktokMetadata(item: Json): PostMetadata & { extra?: TiktokExtra } {
@@ -78,16 +112,23 @@ export function tiktokMetadata(item: Json): PostMetadata & { extra?: TiktokExtra
 async function fetchVideoPage(
   net: Net,
   id: string,
-  userAgent: string,
+  headers: Record<string, string>,
 ): Promise<{ item: Json; cookie: string | null }> {
   const page = await net(`https://www.tiktok.com/@i/video/${id}`, {
-    headers: {
-      accept: "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-      referer: "https://www.tiktok.com/",
-      "user-agent": userAgent,
-    },
+    headers,
   });
   return { cookie: cookieHeader(page.headers), item: itemStruct(await page.text()) };
+}
+
+async function fetchEmbedPage(
+  net: Net,
+  id: string,
+  headers: Record<string, string>,
+): Promise<{ item: Json; cookie: string | null }> {
+  const page = await net(`https://www.tiktok.com/embed/v2/${id}`, {
+    headers,
+  });
+  return { cookie: cookieHeader(page.headers), item: embedItemStruct(await page.text(), id) };
 }
 
 export function isShortlinkHost(hostname: string): boolean {
@@ -134,9 +175,73 @@ function itemStruct(html: string): Json {
   return item;
 }
 
+function embedItemStruct(html: string, id: string): Json {
+  const raw = html.match(/<script\b[^>]*\bid=["']__FRONTITY_CONNECT_STATE__["'][^>]*>([\s\S]*?)<\/script>/i)?.[1];
+  if (!raw) {
+    throw new Error("TikTok embed state not found");
+  }
+  const parsed: unknown = JSON.parse(raw);
+  const source = object(parsed) && object(parsed.source) ? parsed.source : null;
+  const data = source && object(source.data) ? source.data : null;
+  const rawRoute = data ? data[`/embed/v2/${id}`] : null;
+  const route = object(rawRoute) ? rawRoute : null;
+  const videoData = route && object(route.videoData) ? route.videoData : null;
+  const item = videoData && object(videoData.itemInfos) ? videoData.itemInfos : null;
+  if (!videoData || !item) {
+    throw new Error("TikTok embed item not found");
+  }
+
+  const authorInfo = object(videoData.authorInfos) ? videoData.authorInfos : {};
+  const musicInfo = object(videoData.musicInfos) ? videoData.musicInfos : {};
+  const video = object(item.video) ? item.video : {};
+  const videoMeta = object(video.videoMeta) ? video.videoMeta : {};
+  const imagePost = object(videoData.imagePostInfo) ? videoData.imagePostInfo : null;
+  const displayImages = imagePost && Array.isArray(imagePost.displayImages) ? imagePost.displayImages.filter(object) : [];
+  if (displayImages.length === 0) {
+    throw new Error("TikTok video hydration not found");
+  }
+
+  return {
+    ...item,
+    author: {
+      nickname: string(authorInfo.nickName),
+      uniqueId: string(authorInfo.uniqueId),
+      verified: bool(authorInfo.verified),
+    },
+    desc: string(item.text),
+    imagePost: {
+      images: displayImages.map((image) => ({
+        imageURL: {
+          urlList: Array.isArray(image.urlList) ? image.urlList.map(string).filter((url): url is string => Boolean(url)) : [],
+        },
+      })),
+    },
+    music: {
+      authorName: string(musicInfo.authorName),
+      playUrl: firstString(musicInfo.playUrl),
+      title: string(musicInfo.musicName),
+    },
+    stats: {
+      commentCount: item.commentCount,
+      diggCount: item.diggCount,
+      playCount: item.playCount,
+      shareCount: item.shareCount,
+    },
+    video: {
+      duration: videoMeta.duration,
+    },
+  };
+}
+
 function recoverablePageError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : "";
   return message === "TikTok WAF challenge" || message === "TikTok hydration not found";
+}
+
+function firstString(value: unknown): string | null {
+  return Array.isArray(value)
+    ? value.map(string).find((candidate): candidate is string => candidate !== null) ?? null
+    : string(value);
 }
 
 function downloadUrl(item: Json): string | null {

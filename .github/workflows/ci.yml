@@ -73,7 +73,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        platform: [instagram, tiktok, youtube, facebook, twitter, reddit, pinterest, soundcloud]
+        platform: [instagram, linkedin, tiktok, youtube, facebook, twitter, reddit, pinterest, soundcloud]
     steps:
       - uses: actions/checkout@v6
       - uses: oven-sh/setup-bun@v2

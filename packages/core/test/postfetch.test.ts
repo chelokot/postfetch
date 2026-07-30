@@ -15,6 +15,8 @@ function stubFetch(routes: Record<string, () => Response>): typeof fetch {
 describe("detect", () => {
   test("maps hosts to platforms", () => {
     expect(detect("https://www.instagram.com/reel/ABC/")).toBe("instagram");
+    expect(detect("https://www.linkedin.com/posts/example-activity-123-test")).toBe("linkedin");
+    expect(detect("https://uk.linkedin.com/feed/update/urn:li:activity:123")).toBe("linkedin");
     expect(detect("https://vt.tiktok.com/ZSxpHvCUM/")).toBe("tiktok");
     expect(detect("https://youtu.be/dQw4w9WgXcQ")).toBe("youtube");
     expect(detect("https://www.facebook.com/share/v/ABC/")).toBe("facebook");
@@ -29,6 +31,7 @@ describe("detect", () => {
 
   test("rejects unsupported hosts", () => {
     expect(() => detect("https://example.com/x")).toThrow(PostfetchError);
+    expect(() => detect("https://lnkd.in/abc")).toThrow(PostfetchError);
   });
 });
 

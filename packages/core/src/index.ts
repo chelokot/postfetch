@@ -1,7 +1,7 @@
 /**
  * Turn a public social post URL into its media.
  *
- * {@link postfetch} resolves Instagram, TikTok, YouTube, Facebook and X (Twitter)
+ * {@link postfetch} resolves Instagram, LinkedIn, TikTok, YouTube, Facebook and X (Twitter)
  * URLs to typed {@link MediaItem}s. Zero dependencies, only Web-standard APIs
  * (`fetch`, `Response`, `URL`, `crypto`) — so it runs on Deno, Node, Bun,
  * Cloudflare Workers and browsers alike. It only resolves the media; the

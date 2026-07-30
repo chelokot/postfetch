@@ -1,6 +1,7 @@
 import { asUrl, createNet, PostfetchError, type Platform, type PostfetchResult } from "./internal";
 import { resolveFacebook } from "./facebook";
 import { resolveInstagram } from "./instagram";
+import { resolveLinkedin } from "./linkedin";
 import { resolvePinterest } from "./pinterest";
 import { resolveReddit } from "./reddit";
 import { resolveSoundcloud } from "./soundcloud";
@@ -24,7 +25,7 @@ export type PostfetchOptions = {
  * performs no side effects beyond the lookup; use {@link download}, {@link archive}
  * or {@link toResponse} to turn the result into bytes or a `Response`.
  *
- * @param url A post URL from Instagram, TikTok, YouTube, Facebook or X.
+ * @param url A post URL from a supported platform.
  * @param options See {@link PostfetchOptions}.
  * @returns The resolved post and its media items.
  * @throws {PostfetchError} If the URL is empty or its host is unsupported.
@@ -52,6 +53,8 @@ export async function postfetch(url: string, options: PostfetchOptions = {}): Pr
       return resolveFacebook(context);
     case "instagram":
       return resolveInstagram(context);
+    case "linkedin":
+      return resolveLinkedin(context);
     case "pinterest":
       return resolvePinterest(context);
     case "reddit":
@@ -82,6 +85,9 @@ export function detect(url: string): Platform {
   if (host.includes("instagram.com")) {
     return "instagram";
   }
+  if (host === "linkedin.com" || host.endsWith(".linkedin.com")) {
+    return "linkedin";
+  }
   if (host.includes("pinterest.") || host === "pin.it") {
     return "pinterest";
   }
@@ -100,5 +106,5 @@ export function detect(url: string): Platform {
   if (host === "x.com" || host.endsWith(".x.com") || host.includes("twitter.com")) {
     return "twitter";
   }
-  throw new PostfetchError(400, "only Facebook, Instagram, Pinterest, Reddit, SoundCloud, TikTok, X and YouTube URLs are supported");
+  throw new PostfetchError(400, "only Facebook, Instagram, LinkedIn, Pinterest, Reddit, SoundCloud, TikTok, X and YouTube URLs are supported");
 }

@@ -1,6 +1,6 @@
 # @postfetch/core
 
-Zero-dependency typed core that turns Instagram, TikTok and YouTube post URLs into media files. Part of [postfetch](https://github.com/chelokot/postfetch).
+Zero-dependency typed core that turns Facebook, Instagram, LinkedIn, Pinterest, Reddit, SoundCloud, TikTok, X and YouTube post URLs into media files. Part of [postfetch](https://github.com/chelokot/postfetch).
 
 ```ts
 import { postfetch, download, archive, toResponse, PostfetchError } from "@postfetch/core";

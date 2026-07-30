@@ -1,5 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { browserFingerprint, browserUserAgent, firefoxUserAgent, navigationHeaders } from "../src/fingerprint";
+import {
+  browserFingerprint,
+  browserUserAgent,
+  firefoxNavigationHeaders,
+  firefoxUserAgent,
+  navigationHeaders,
+} from "../src/fingerprint";
 
 const platformToken: Record<string, string> = {
   Linux: "Linux x86_64",
@@ -30,5 +36,8 @@ describe("fingerprint", () => {
   test("browser and firefox user-agents are well-formed distinct families", () => {
     expect(browserUserAgent()).toMatch(/Chrome\/\d+/);
     expect(firefoxUserAgent()).toMatch(/Firefox\/\d+/);
+    const firefoxHeaders = firefoxNavigationHeaders();
+    expect(firefoxHeaders["user-agent"]).toMatch(/Firefox\/\d+/);
+    expect(firefoxHeaders["sec-ch-ua"]).toBeUndefined();
   });
 });
