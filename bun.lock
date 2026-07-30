@@ -28,7 +28,7 @@
     },
     "packages/core": {
       "name": "@postfetch/core",
-      "version": "0.5.2",
+      "version": "0.6.0",
     },
     "templates/aws-lambda": {
       "name": "postfetch-template-aws-lambda",
