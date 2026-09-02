@@ -48,7 +48,7 @@ if (result.items.length === 1) {
 | `toResponse` | `(result, options?) => Promise<Response>` | One item → streamed file; many → zip. Used by the server and templates. |
 | `PostfetchError` | `class { status, message }` | Carries an HTTP status for adapters to map. |
 
-`PostfetchOptions` — `{ fetch?: typeof fetch; preferredWidth?: number }`. Injecting `fetch` is what makes the resolvers unit-testable offline:
+`PostfetchOptions` — `{ fetch?: typeof fetch; preferredWidth?: number; tryMaxBytes?: number }`. `tryMaxBytes` is a soft byte cap: postfetch probes the normally selected media with `HEAD` and, when it is too large, returns a smaller available rendition. If the size or a smaller rendition is unavailable, it keeps the normal result. Injecting `fetch` is what makes the resolvers unit-testable offline:
 
 ```ts
 const result = await postfetch(url, { fetch: myStub });
@@ -60,6 +60,9 @@ const result = await postfetch(url, { fetch: myStub });
 bun install
 bun start            # http://localhost:3040/?url=
 curl -OJ 'http://localhost:3040/?url=https://vt.tiktok.com/ZSxpHvCUM/'
+
+# Prefer the normal rendition, but try a smaller one when it exceeds 50 MB
+curl -OJ 'http://localhost:3040/?tryMaxBytes=50000000&url=https%3A%2F%2Fwww.facebook.com%2Fshare%2Fr%2F19DLkVRYDA%2F'
 ```
 
 Build the showcase image:

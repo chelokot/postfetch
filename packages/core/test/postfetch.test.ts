@@ -40,6 +40,10 @@ describe("postfetch", () => {
     await expect(postfetch("   ")).rejects.toThrow(PostfetchError);
   });
 
+  test("rejects an invalid tryMaxBytes value", async () => {
+    await expect(postfetch("https://www.facebook.com/reel/123", { tryMaxBytes: 0 })).rejects.toMatchObject({ status: 400 });
+  });
+
   test("resolves an Instagram reel from the inline page (injected fetch)", async () => {
     const html = `<html><body><script type="application/json">${JSON.stringify({
       require: [{ media: { code: "DZ0", media_type: 2, video_versions: [{ type: 101, url: "https://cdn.test/reel.mp4" }] } }],
@@ -97,6 +101,147 @@ describe("postfetch", () => {
 
     expect(result.platform).toBe("facebook");
     expect(result.items[0]).toMatchObject({ kind: "video", id: "123456", url: "https://cdn.test/fb.mp4" });
+  });
+
+  test("normalizes a suffixed Facebook share link and honors a low preferred width", async () => {
+    const requested: string[] = [];
+    const validShare = "https://www.facebook.com/share/r/19DLkVRYDA/";
+    const canonical = "https://www.facebook.com/reel/1708489969798741";
+    const redirected = (target: string): Response => {
+      const response = new Response("");
+      Object.defineProperty(response, "url", { value: target });
+      return response;
+    };
+    const fetch = (async (input: string | URL | Request) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      requested.push(url);
+      if (url === validShare) {
+        return redirected(canonical);
+      }
+      if (url.startsWith("https://www.facebook.com/plugins/video.php")) {
+        return new Response('<html>{"hd_src":"https:\\/\\/cdn.test\\/fb-hd.mp4","sd_src":"https:\\/\\/cdn.test\\/fb-sd.mp4"}</html>');
+      }
+      return new Response("not found", { status: 404 });
+    }) as typeof globalThis.fetch;
+
+    const result = await postfetch(`${validShare}%D1%84%D0%B8%D0%B3%D0%B0%D1%81%D1%81%D0%B5`, {
+      fetch,
+      preferredWidth: 360,
+    });
+
+    expect(requested[0]).toBe(validShare);
+    expect(result.items[0]).toMatchObject({ id: "1708489969798741", url: "https://cdn.test/fb-sd.mp4" });
+  });
+
+  test("honors a low preferred width for the Facebook watch-page fallback", async () => {
+    const canonical = "https://www.facebook.com/reel/123456";
+    const redirected = (target: string): Response => {
+      const response = new Response("");
+      Object.defineProperty(response, "url", { value: target });
+      return response;
+    };
+    const fetch = (async (input: string | URL | Request) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      if (url === canonical) {
+        return redirected(canonical);
+      }
+      if (url.startsWith("https://www.facebook.com/plugins/video.php")) {
+        return new Response("<html></html>");
+      }
+      if (url.startsWith("https://www.facebook.com/watch/")) {
+        return new Response(
+          '<html>{"playable_url_quality_hd":"https:\\/\\/cdn.test\\/watch-hd.mp4","playable_url":"https:\\/\\/cdn.test\\/watch-sd.mp4"}</html>',
+        );
+      }
+      return new Response("not found", { status: 404 });
+    }) as typeof globalThis.fetch;
+
+    const result = await postfetch(canonical, { fetch, preferredWidth: 360 });
+
+    expect(result.items[0]).toMatchObject({ id: "123456", url: "https://cdn.test/watch-sd.mp4" });
+  });
+
+  test("tryMaxBytes returns a smaller Facebook rendition when the normal one is too large", async () => {
+    const share = "https://www.facebook.com/share/r/ABC/";
+    const canonical = "https://www.facebook.com/reel/123456";
+    const headRequests: string[] = [];
+    const redirected = (target: string): Response => {
+      const response = new Response("");
+      Object.defineProperty(response, "url", { value: target });
+      return response;
+    };
+    const fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      if (init?.method === "HEAD") {
+        headRequests.push(url);
+        const bytes = url.endsWith("fb-hd.mp4") ? 60_000_000 : 40_000_000;
+        return new Response(null, { headers: { "content-length": String(bytes) } });
+      }
+      if (url === share) {
+        return redirected(canonical);
+      }
+      if (url.startsWith("https://www.facebook.com/plugins/video.php")) {
+        return new Response('<html>{"hd_src":"https:\\/\\/cdn.test\\/fb-hd.mp4","sd_src":"https:\\/\\/cdn.test\\/fb-sd.mp4"}</html>');
+      }
+      return new Response("not found", { status: 404 });
+    }) as typeof globalThis.fetch;
+
+    const result = await postfetch(share, { fetch, tryMaxBytes: 50_000_000 });
+
+    expect(result.items[0]?.url).toBe("https://cdn.test/fb-sd.mp4");
+    expect(headRequests).toEqual(["https://cdn.test/fb-hd.mp4", "https://cdn.test/fb-sd.mp4"]);
+  });
+
+  test("tryMaxBytes keeps the normal rendition when its size cannot be discovered", async () => {
+    const canonical = "https://www.facebook.com/reel/123456";
+    let embedRequests = 0;
+    const redirected = (target: string): Response => {
+      const response = new Response("");
+      Object.defineProperty(response, "url", { value: target });
+      return response;
+    };
+    const fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      if (init?.method === "HEAD") {
+        return new Response(null, { status: 405 });
+      }
+      if (url === canonical) {
+        return redirected(canonical);
+      }
+      if (url.startsWith("https://www.facebook.com/plugins/video.php")) {
+        embedRequests += 1;
+        return new Response('<html>{"hd_src":"https:\\/\\/cdn.test\\/fb-hd.mp4","sd_src":"https:\\/\\/cdn.test\\/fb-sd.mp4"}</html>');
+      }
+      return new Response("not found", { status: 404 });
+    }) as typeof globalThis.fetch;
+
+    const result = await postfetch(canonical, { fetch, tryMaxBytes: 50_000_000 });
+
+    expect(result.items[0]?.url).toBe("https://cdn.test/fb-hd.mp4");
+    expect(embedRequests).toBe(1);
+  });
+
+  test("reports a missing Facebook video as a typed not-found error", async () => {
+    const redirected = (target: string): Response => {
+      const response = new Response("");
+      Object.defineProperty(response, "url", { value: target });
+      return response;
+    };
+    const fetch = (async (input: string | URL | Request) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      if (url === "https://www.facebook.com/reel/123456") {
+        return redirected(url);
+      }
+      return new Response("not found", { status: 404 });
+    }) as typeof globalThis.fetch;
+
+    try {
+      await postfetch("https://www.facebook.com/reel/123456", { fetch });
+      throw new Error("expected postfetch to reject");
+    } catch (error) {
+      expect(error).toBeInstanceOf(PostfetchError);
+      expect(error).toMatchObject({ reason: "notFound", status: 404 });
+    }
   });
 
   test("resolves a YouTube video through the session bootstrap (injected fetch)", async () => {

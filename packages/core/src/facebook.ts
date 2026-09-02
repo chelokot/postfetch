@@ -1,16 +1,16 @@
-import { asUrl, count, filename, isoFromEpochSeconds, type PostMetadata, type ResolveContext, type Json, type Net, type PostfetchResult, type MediaItem } from "./internal";
+import { asUrl, count, filename, isoFromEpochSeconds, PostfetchError, type PostMetadata, type ResolveContext, type Json, type Net, type PostfetchResult, type MediaItem } from "./internal";
 import { browserUserAgent } from "./fingerprint";
 
 export async function resolveFacebook(input: ResolveContext): Promise<PostfetchResult> {
-  const canonical = await canonicalUrl(input.net, input.url);
+  const canonical = await canonicalUrl(input.net, normalizedInputUrl(input.url));
   const id = facebookId(canonical) ?? facebookId(input.url) ?? "video";
   // The embed player only exposes /share/v/ videos; reels (and anything it
   // misses) come from the watch page, which the &_rdr flag serves logged-out.
-  const embed = await embedVideo(input.net, canonical);
-  const watch = !embed && /^\d+$/.test(id) ? await watchVideo(input.net, id) : null;
+  const embed = await embedVideo(input.net, canonical, input.preferredWidth);
+  const watch = !embed && /^\d+$/.test(id) ? await watchVideo(input.net, id, input.preferredWidth) : null;
   const url = embed ?? watch?.url ?? null;
   if (!url) {
-    throw new Error("Facebook video not found");
+    throw new PostfetchError(404, "Facebook video not found", "notFound");
   }
   const item: MediaItem = {
     filename: filename(`facebook_${id}.mp4`),
@@ -22,6 +22,16 @@ export async function resolveFacebook(input: ResolveContext): Promise<PostfetchR
     url,
   };
   return { archiveFilename: filename(`facebook_${id}.zip`), id, items: [item], metadata: watch?.metadata, platform: "facebook" };
+}
+
+// Facebook share links are opaque shortlinks. Messaging apps sometimes append
+// selected text to the copied URL as another path segment; Facebook returns 404
+// for that form even though the share token is still intact. Strip everything
+// after the token before following the redirect.
+function normalizedInputUrl(input: string): string {
+  const url = asUrl(input);
+  const share = url.pathname.match(/^\/share\/([a-z])\/([A-Za-z0-9]+)/i);
+  return share ? `${url.origin}/share/${share[1]}/${share[2]}/` : input;
 }
 
 function navigationHeaders(): Record<string, string> {
@@ -43,19 +53,19 @@ async function canonicalUrl(net: Net, input: string): Promise<string> {
 
 // The logged-out watch page is fingerprint-walled, but the public embed player
 // (plugins/video.php) still exposes the progressive hd_src/sd_src URLs.
-async function embedVideo(net: Net, canonical: string): Promise<string | null> {
+async function embedVideo(net: Net, canonical: string, preferredWidth: number): Promise<string | null> {
   const embed = `https://www.facebook.com/plugins/video.php?href=${encodeURIComponent(canonical)}`;
   const response = await net(embed, { headers: navigationHeaders() });
   if (!response.ok) {
     return null;
   }
   const html = await response.text();
-  return source(html, "hd_src") ?? source(html, "sd_src");
+  return preferredSource(preferredWidth, source(html, "hd_src"), source(html, "sd_src"));
 }
 
 // The logged-out watch page (with &_rdr) embeds the progressive video URLs in
 // its ScheduledServerJS blocks; these are the same fields yt-dlp reads.
-async function watchVideo(net: Net, id: string): Promise<{ url: string; metadata: PostMetadata } | null> {
+async function watchVideo(net: Net, id: string, preferredWidth: number): Promise<{ url: string; metadata: PostMetadata } | null> {
   // Without the document Accept header Facebook serves a JS shell without the
   // media JSON, so ask for HTML explicitly here.
   const headers = { ...navigationHeaders(), accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8" };
@@ -64,12 +74,16 @@ async function watchVideo(net: Net, id: string): Promise<{ url: string; metadata
     return null;
   }
   const html = await response.text();
-  const url =
-    source(html, "playable_url_quality_hd") ??
-    source(html, "browser_native_hd_url") ??
-    source(html, "playable_url") ??
-    source(html, "browser_native_sd_url");
+  const hd = source(html, "playable_url_quality_hd") ?? source(html, "browser_native_hd_url");
+  const sd = source(html, "playable_url") ?? source(html, "browser_native_sd_url");
+  const url = preferredSource(preferredWidth, hd, sd);
   return url ? { url, metadata: watchMetadata(html) } : null;
+}
+
+// Facebook labels its two progressive renditions as 720p HD and 360p SD. Pick
+// the one closest to the requested width, preferring HD on the 540px midpoint.
+function preferredSource(preferredWidth: number, hd: string | null, sd: string | null): string | null {
+  return preferredWidth >= 540 ? hd ?? sd : sd ?? hd;
 }
 
 // Only the fields that can be read unambiguously from the flat page: the

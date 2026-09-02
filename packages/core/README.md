@@ -13,7 +13,7 @@ for (const item of result.items) {
 
 `postfetch(url, options?)` detects the platform and resolves its media into a typed `PostfetchResult` (URLs plus the headers needed to fetch them). It performs no side effects beyond the lookup — `download`, `archive` and `toResponse` turn the result into bytes or an HTTP `Response`.
 
-- `PostfetchOptions` — `{ fetch?: typeof fetch; preferredWidth?: number }`. Inject `fetch` to unit-test resolvers offline.
+- `PostfetchOptions` — `{ fetch?: typeof fetch; preferredWidth?: number; tryMaxBytes?: number }`. `tryMaxBytes` is a soft byte cap: when the normal media is larger, a smaller available rendition is returned; if its size cannot be discovered or no smaller rendition is available, the normal result is kept. Inject `fetch` to unit-test resolvers offline.
 - Every request rotates a consistent browser/app fingerprint, so a fixed user-agent never gets the whole fleet blocked.
 - No runtime dependencies, no `ffmpeg` / `yt-dlp`, no cookies.
 

@@ -7,8 +7,8 @@ Bun.serve({
   port,
   async fetch(request) {
     try {
-      const { url, preferredWidth } = await readInput(request);
-      const result = await postfetch(url, { preferredWidth });
+      const { url, preferredWidth, tryMaxBytes } = await readInput(request);
+      const result = await postfetch(url, { preferredWidth, tryMaxBytes });
       return await toResponse(result);
     } catch (error) {
       const status = error instanceof PostfetchError ? error.status : 500;
@@ -20,14 +20,18 @@ Bun.serve({
 
 console.info(`http://localhost:${port}/?url=`);
 
-async function readInput(request: Request): Promise<{ preferredWidth?: number; url: string }> {
+async function readInput(request: Request): Promise<{ preferredWidth?: number; tryMaxBytes?: number; url: string }> {
   const requestUrl = new URL(request.url);
   const body = request.method === "GET" || request.method === "HEAD" ? null : await request.text();
   const raw = requestUrl.searchParams.get("url") ?? body;
   if (!raw || raw.trim().length === 0) {
     throw new PostfetchError(400, "pass ?url= or POST a URL");
   }
-  return { preferredWidth: positiveInt(requestUrl.searchParams.get("width")), url: raw.trim() };
+  return {
+    preferredWidth: positiveInt(requestUrl.searchParams.get("width")),
+    tryMaxBytes: positiveInt(requestUrl.searchParams.get("tryMaxBytes")),
+    url: raw.trim(),
+  };
 }
 
 function positiveInt(value: string | null): number | undefined {

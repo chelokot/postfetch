@@ -1,4 +1,4 @@
-import { asUrl, createNet, PostfetchError, type Platform, type PostfetchResult } from "./internal";
+import { asUrl, createNet, PostfetchError, type MediaItem, type Platform, type PostfetchResult, type ResolveContext } from "./internal";
 import { resolveFacebook } from "./facebook";
 import { resolveInstagram } from "./instagram";
 import { resolveLinkedin } from "./linkedin";
@@ -15,6 +15,13 @@ export type PostfetchOptions = {
   fetch?: typeof fetch;
   /** Preferred media width in pixels; the closest available rendition is chosen. Defaults to `720`. */
   preferredWidth?: number;
+  /**
+   * Soft file-size cap in bytes. The normal rendition is resolved and probed
+   * with HEAD; when it exceeds the cap, a smaller available rendition is
+   * returned. If size discovery or the smaller rendition is unavailable, the
+   * normal result is returned unchanged.
+   */
+  tryMaxBytes?: number;
 };
 
 /**
@@ -43,12 +50,20 @@ export async function postfetch(url: string, options: PostfetchOptions = {}): Pr
   if (trimmed.length === 0) {
     throw new PostfetchError(400, "url is required");
   }
-  const context = {
+  if (options.tryMaxBytes !== undefined && (!Number.isSafeInteger(options.tryMaxBytes) || options.tryMaxBytes <= 0)) {
+    throw new PostfetchError(400, "tryMaxBytes must be a positive integer");
+  }
+  const context: ResolveContext = {
     net: createNet(options.fetch ?? globalThis.fetch),
     preferredWidth: options.preferredWidth ?? 720,
     url: trimmed,
   };
-  switch (detect(trimmed)) {
+  const result = await resolve(context);
+  return options.tryMaxBytes === undefined ? result : trySmaller(context, result, options.tryMaxBytes);
+}
+
+async function resolve(context: ResolveContext): Promise<PostfetchResult> {
+  switch (detect(context.url)) {
     case "facebook":
       return resolveFacebook(context);
     case "instagram":
@@ -68,6 +83,65 @@ export async function postfetch(url: string, options: PostfetchOptions = {}): Pr
     case "youtube":
       return resolveYoutube(context);
   }
+}
+
+async function trySmaller(context: ResolveContext, result: PostfetchResult, maxBytes: number): Promise<PostfetchResult> {
+  const originalBytes = await resultBytes(context, result);
+  if (originalBytes === null || originalBytes <= maxBytes) {
+    return result;
+  }
+  try {
+    // Width-aware resolvers interpret 1px as "pick the smallest available".
+    // Resolvers without a smaller rendition return the same media unchanged.
+    const smaller = await resolve({ ...context, preferredWidth: 1 });
+    if (sameMedia(result, smaller)) {
+      return result;
+    }
+    const smallerBytes = await resultBytes(context, smaller);
+    return smallerBytes !== null && smallerBytes < originalBytes ? smaller : result;
+  } catch {
+    return result;
+  }
+}
+
+async function resultBytes(context: ResolveContext, result: PostfetchResult): Promise<number | null> {
+  const sizes = await Promise.all(result.items.map((item) => itemBytes(context, item)));
+  if (sizes.some((size) => size === null)) {
+    return null;
+  }
+  return sizes.reduce<number>((total, size) => total + (size ?? 0), 0);
+}
+
+async function itemBytes(context: ResolveContext, item: MediaItem): Promise<number | null> {
+  if (item.hls) {
+    return null;
+  }
+  const [video, audio] = await Promise.all([
+    contentLength(context, item.url, item.headers),
+    item.audio ? contentLength(context, item.audio.url, item.audio.headers) : Promise.resolve(0),
+  ]);
+  return video === null || audio === null ? null : video + audio;
+}
+
+async function contentLength(context: ResolveContext, url: string, headers: HeadersInit): Promise<number | null> {
+  try {
+    const response = await context.net(url, { headers, method: "HEAD" }, 1);
+    const raw = response.ok ? response.headers.get("content-length") : null;
+    if (!raw || !/^\d+$/.test(raw)) {
+      return null;
+    }
+    const bytes = Number(raw);
+    return Number.isSafeInteger(bytes) ? bytes : null;
+  } catch {
+    return null;
+  }
+}
+
+function sameMedia(left: PostfetchResult, right: PostfetchResult): boolean {
+  return left.items.length === right.items.length && left.items.every((item, index) => {
+    const other = right.items[index];
+    return item.url === other?.url && item.audio?.url === other.audio?.url;
+  });
 }
 
 /**
