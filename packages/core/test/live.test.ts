@@ -312,7 +312,7 @@ describe("live network", () => {
   test.skipIf(!runs("facebook"))(
     "facebook reel resolves to a video via the watch page",
     async () => {
-      const result = await postfetch("https://www.facebook.com/share/r/18z2cXtUGM/");
+      const result = await postfetch("https://www.facebook.com/share/v/1EPP6qG6VL/");
       expect(result.platform).toBe("facebook");
       expect(result.items[0]?.kind).toBe("video");
       expect(result.items[0]?.mime).toBe("video/mp4");
