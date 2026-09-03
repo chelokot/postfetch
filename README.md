@@ -21,7 +21,7 @@ deno add jsr:@postfetch/core    # Deno / JSR
 ```
 
 ```ts
-import { postfetch, download, archive } from "@postfetch/core";
+import { postfetch, download, downloadBlob, archive } from "@postfetch/core";
 
 const result = await postfetch("https://www.instagram.com/reel/DZ0ixNxtvYq/");
 // result.platform === "instagram"
@@ -44,6 +44,7 @@ if (result.items.length === 1) {
 | `postfetch` | `(url, options?) => Promise<PostfetchResult>` | Detects the platform and resolves its media. |
 | `detect` | `(url) => Platform` | `"facebook" \| "instagram" \| "linkedin" \| "pinterest" \| "reddit" \| "soundcloud" \| "tiktok" \| "twitter" \| "youtube"`; throws on anything else. |
 | `download` | `(item, options?) => Promise<Response>` | Fetches one item from its CDN with the right headers. |
+| `downloadBlob` | `(url, headers?, options?) => Promise<Blob>` | Downloads an already-resolved direct media URL as a Blob. |
 | `archive` | `(result, options?) => Promise<{ bytes, filename, mime }>` | Zips every item (store mode, in-process). |
 | `toResponse` | `(result, options?) => Promise<Response>` | One item → streamed file; many → zip. Used by the server and templates. |
 | `PostfetchError` | `class { status, message }` | Carries an HTTP status for adapters to map. |
@@ -52,6 +53,16 @@ if (result.items.length === 1) {
 
 ```ts
 const result = await postfetch(url, { fetch: myStub });
+```
+
+Clients that must upload media themselves, such as Telegram rich-message
+senders, can materialize protected CDN media without handling its request
+body directly:
+
+```ts
+const [media] = (await postfetch(rawUrl)).items;
+const blob = await downloadBlob(media.url, media.headers);
+form.append("video", blob, media.filename);
 ```
 
 ## Run the server
@@ -101,13 +112,15 @@ A single post is written as one file, carousels and slideshows as a `.zip`; the 
 | LinkedIn | public post with an image | `image/jpeg` |
 | YouTube | `watch`, `shorts`, `live`, `embed`, `youtu.be` | up to 1080p `video/mp4` (audio remuxed) |
 | Facebook | reel, video, `/share/v/…`, `fb.watch` | `video/mp4` |
-| X (Twitter) | tweet / status with video, gif, or photos | `video/mp4`, `image/jpeg`, or `zip` |
+| X (Twitter) | tweet / status with video, gif, or photos (including an embedded quoted post) | `video/mp4`, `image/jpeg`, or `zip` |
 | Reddit | image or gallery post | `image/jpeg` or `zip` of images |
 | Reddit | video post (audio remuxed in-process) | `video/mp4` |
 | Pinterest | image pin | `image/jpeg` |
 | Pinterest | video pin (progressive rendition) | `video/mp4` |
 | Pinterest | idea pin (HLS, video + audio merged) | `video/mp4` |
 | SoundCloud | track (progressive or HLS) | `audio/mpeg` or `audio/mp4` |
+
+For an X quote post, `items` are ordered outer post first and quoted post second; each item's `id` identifies the status it came from. The quoted post's text and author are available at `metadata.extra.quotedTweet.metadata`.
 
 YouTube and Reddit hand out HD video and audio as separate DASH streams; both are fetched and **remuxed into one MP4 in-process** at download time — recombining the fragments at the box level, no `ffmpeg` ([`remux.ts`](packages/core/src/remux.ts)). YouTube picks H.264 video close to the preferred width (so the default stays modest, not 4K) plus the best AAC track. Pinterest idea pins and SoundCloud's HLS-only tracks expose their media as **HLS playlists**, whose CMAF segments are fetched and concatenated into a fragmented MP4 — and merged, for a separate video+audio pair — the same way, again with no `ffmpeg` ([`hls.ts`](packages/core/src/hls.ts)).
 

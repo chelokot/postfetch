@@ -26,8 +26,10 @@ export async function resolveTwitter(input: ResolveContext): Promise<PostfetchRe
   if (string(tweet.__typename) === "TweetTombstone") {
     throw new Error("Tweet is unavailable or age-restricted");
   }
-  const media = Array.isArray(tweet.mediaDetails) ? tweet.mediaDetails.filter(object) : [];
-  const items = media.flatMap((entry, index) => twitterItem(entry, id, index + 1));
+  const items = twitterTweets(tweet, id).flatMap(({ id: postId, tweet: post }) => {
+    const media = Array.isArray(post.mediaDetails) ? post.mediaDetails.filter(object) : [];
+    return media.flatMap((entry, index) => twitterItem(entry, postId, index + 1));
+  });
   if (items.length === 0) {
     throw new Error("Twitter media not found");
   }
@@ -36,6 +38,16 @@ export async function resolveTwitter(input: ResolveContext): Promise<PostfetchRe
 
 export function twitterMetadata(tweet: Json): PostMetadata & { extra?: TwitterExtra } {
   const user = object(tweet.user) ? tweet.user : null;
+  const extra: TwitterExtra = {};
+  const lang = string(tweet.lang);
+  if (lang) {
+    extra.lang = lang;
+  }
+  const quotedTweet = object(tweet.quoted_tweet) ? tweet.quoted_tweet : null;
+  const quotedId = quotedTweet ? string(quotedTweet.id_str) : null;
+  if (quotedTweet && quotedId) {
+    extra.quotedTweet = { id: quotedId, metadata: twitterMetadata(quotedTweet) };
+  }
   return {
     text: (string(tweet.text) ?? string(tweet.full_text)) ?? undefined,
     author: user
@@ -51,8 +63,26 @@ export function twitterMetadata(tweet: Json): PostMetadata & { extra?: TwitterEx
     shareCount: count(tweet.retweet_count),
     viewCount: count(tweet.view_count),
     nsfw: bool(tweet.possibly_sensitive),
-    extra: { lang: string(tweet.lang) ?? undefined },
+    extra,
   };
+}
+
+function twitterTweets(tweet: Json, rootId: string): Array<{ id: string; tweet: Json }> {
+  const tweets: Array<{ id: string; tweet: Json }> = [];
+  const seen = new Set<string>();
+  let current: Json | null = tweet;
+  let fallbackId: string | null = rootId;
+  while (current) {
+    const id = string(current.id_str) ?? fallbackId;
+    if (!id || seen.has(id)) {
+      break;
+    }
+    tweets.push({ id, tweet: current });
+    seen.add(id);
+    current = object(current.quoted_tweet) ? current.quoted_tweet : null;
+    fallbackId = null;
+  }
+  return tweets;
 }
 
 // The public syndication endpoint returns tweet media (video variants + photos)

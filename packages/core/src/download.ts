@@ -55,6 +55,38 @@ export async function download(item: MediaItem, options: DownloadOptions = {}): 
 }
 
 /**
+ * Download an already-resolved media URL as a Blob.
+ *
+ * This is useful for consumers that need to upload media themselves instead of
+ * passing its URL to a third party. When the resolved {@link MediaItem} carries
+ * required CDN headers, pass them as the second argument.
+ *
+ * @param url A direct media URL returned by a resolver.
+ * @param headers Headers required by the resolved media URL.
+ * @param options Fetch options.
+ * @returns The downloaded media as a Blob.
+ *
+ * @example Upload a video with FormData
+ * ```ts
+ * const [media] = (await postfetch(sourceUrl)).items;
+ * const blob = await downloadBlob(media.url, media.headers);
+ * form.append("video", blob, media.filename);
+ * ```
+ */
+export async function downloadBlob(
+  url: string,
+  headers: HeadersInit = {},
+  options: DownloadOptions = {},
+): Promise<Blob> {
+  const net = createNet(options.fetch ?? globalThis.fetch);
+  const response = await net(url, { headers });
+  if (!response.ok || !response.body) {
+    throw new PostfetchError(502, `download failed: ${response.status}`);
+  }
+  return response.blob();
+}
+
+/**
  * Download every item of a result and zip them in-process (store mode).
  *
  * @param result A {@link PostfetchResult}.

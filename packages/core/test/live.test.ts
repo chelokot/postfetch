@@ -370,4 +370,21 @@ describe("live network", () => {
     },
     30_000,
   );
+
+  test.skipIf(!runs("twitter"))(
+    "x quote post includes media and metadata from the quoted post",
+    async () => {
+      const result = await postfetch("https://x.com/rehan_shei/status/2094955712606593294/video/1");
+      if (result.platform !== "twitter") {
+        throw new Error("expected a twitter result");
+      }
+      expect(result.items).toHaveLength(2);
+      expect(result.items.map((item) => item.id)).toEqual(["2094955712606593294", "2094839756329041984"]);
+      expect(result.items.every((item) => item.kind === "video")).toBe(true);
+      expect(result.metadata?.text).toContain("Sports replays");
+      expect(result.metadata?.extra?.quotedTweet?.id).toBe("2094839756329041984");
+      expect(result.metadata?.extra?.quotedTweet?.metadata.text).toContain("Introducing Atlas");
+    },
+    30_000,
+  );
 });

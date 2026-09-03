@@ -84,6 +84,50 @@ describe("postfetch", () => {
     expect(result.items[0]).toMatchObject({ kind: "video", url: "https://video.twimg.com/hi.mp4" });
   });
 
+  test("includes media and metadata from an embedded quoted X post", async () => {
+    const video = (url: string) => ({
+      type: "video",
+      video_info: { variants: [{ bitrate: 2176000, content_type: "video/mp4", url }] },
+    });
+    const tweet = {
+      __typename: "Tweet",
+      id_str: "100",
+      text: "Outer text",
+      user: { name: "Outer", screen_name: "outer" },
+      mediaDetails: [video("https://video.twimg.com/outer.mp4")],
+      quoted_tweet: {
+        id_str: "90",
+        text: "Quoted text",
+        lang: "en",
+        user: { name: "Quoted", screen_name: "quoted" },
+        mediaDetails: [video("https://video.twimg.com/quoted.mp4")],
+      },
+    };
+    const result = await postfetch("https://x.com/outer/status/100/video/1", {
+      fetch: stubFetch({
+        "https://cdn.syndication.twimg.com/tweet-result": () =>
+          new Response(JSON.stringify(tweet), { headers: { "content-type": "application/json" } }),
+      }),
+    });
+    if (result.platform !== "twitter") {
+      throw new Error("expected a twitter result");
+    }
+
+    expect(result.items).toEqual([
+      expect.objectContaining({ filename: "twitter_100_1.mp4", id: "100", url: "https://video.twimg.com/outer.mp4" }),
+      expect.objectContaining({ filename: "twitter_90_1.mp4", id: "90", url: "https://video.twimg.com/quoted.mp4" }),
+    ]);
+    expect(result.metadata?.text).toBe("Outer text");
+    expect(result.metadata?.extra?.quotedTweet).toEqual({
+      id: "90",
+      metadata: expect.objectContaining({
+        text: "Quoted text",
+        author: expect.objectContaining({ handle: "quoted", name: "Quoted" }),
+        extra: { lang: "en" },
+      }),
+    });
+  });
+
   test("resolves a Facebook share link through the embed player (injected fetch)", async () => {
     const canonical = "https://www.facebook.com/reel/123456";
     const embed = `<html>{"hd_src":"https:\\/\\/cdn.test\\/fb.mp4","sd_src":"https:\\/\\/cdn.test\\/fb-sd.mp4"}</html>`;

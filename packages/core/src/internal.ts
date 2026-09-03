@@ -103,6 +103,16 @@ export type TiktokExtra = {
 export type TwitterExtra = {
   /** BCP 47 language tag detected for the tweet. */
   lang?: string;
+  /** The post quoted by this post, when X includes it in the resolved payload. */
+  quotedTweet?: TwitterQuotedTweet;
+};
+
+/** A quoted X post and its normalized metadata. */
+export type TwitterQuotedTweet = {
+  /** Status id of the quoted post. */
+  id: string;
+  /** Metadata belonging to the quoted post rather than the outer post. */
+  metadata: PostMetadata & { extra?: TwitterExtra };
 };
 
 /** Instagram-specific metadata. */

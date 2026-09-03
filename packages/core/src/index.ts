@@ -5,8 +5,8 @@
  * URLs to typed {@link MediaItem}s. Zero dependencies, only Web-standard APIs
  * (`fetch`, `Response`, `URL`, `crypto`) — so it runs on Deno, Node, Bun,
  * Cloudflare Workers and browsers alike. It only resolves the media; the
- * {@link download}, {@link archive} and {@link toResponse} helpers turn a result
- * into bytes or a `Response`.
+ * {@link download}, {@link downloadBlob}, {@link archive} and {@link toResponse}
+ * helpers turn a result into bytes, a `Blob`, or a `Response`.
  *
  * @example Resolve a reel and save the video
  * ```ts
@@ -20,7 +20,14 @@
  * @module
  */
 export { postfetch, detect, type PostfetchOptions } from "./postfetch";
-export { download, archive, toResponse, type Archive, type DownloadOptions } from "./download";
+export {
+  download,
+  downloadBlob,
+  archive,
+  toResponse,
+  type Archive,
+  type DownloadOptions,
+} from "./download";
 export { PostfetchError } from "./internal";
 export type {
   InstagramExtra,
@@ -37,5 +44,6 @@ export type {
   SoundcloudExtra,
   TiktokExtra,
   TwitterExtra,
+  TwitterQuotedTweet,
   YoutubeExtra,
 } from "./internal";

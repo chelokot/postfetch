@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { postfetch } from "../src/index";
+import { downloadBlob, postfetch } from "../src/index";
 import { isShortlinkHost } from "../src/tiktok";
 
 describe("tiktok url parsing", () => {
@@ -40,6 +40,52 @@ function shellThenEmbed(id: string, videoData: object, requests: Array<{ url: st
 }
 
 describe("tiktok page fallbacks", () => {
+  test("downloadBlob materializes protected media with the resolved TikTok headers", async () => {
+    const id = "1122334455";
+    const mediaUrl = "https://v16-webapp-prime.tiktok.com/video/main.mp4";
+    const mediaBytes = new TextEncoder().encode("protected-video-bytes");
+    const hydration = {
+      __DEFAULT_SCOPE__: {
+        "webapp.video-detail": {
+          itemInfo: {
+            itemStruct: {
+              id,
+              author: { uniqueId: "creator" },
+              video: { playAddr: mediaUrl },
+            },
+          },
+        },
+      },
+    };
+    const injectedFetch = (async (input: string | URL | Request, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      if (url === `https://www.tiktok.com/@i/video/${id}`) {
+        return new Response(
+          `<script id="__UNIVERSAL_DATA_FOR_REHYDRATION__" type="application/json">${JSON.stringify(hydration)}</script>`,
+          { headers: { "set-cookie": "tt_chain_token=secret; Path=/" } },
+        );
+      }
+      if (url === mediaUrl) {
+        const headers = new Headers(init?.headers);
+        if (
+          headers.get("cookie") !== "tt_chain_token=secret"
+          || headers.get("referer") !== `https://www.tiktok.com/@creator/video/${id}`
+        ) {
+          return new Response("access denied", { status: 403 });
+        }
+        return new Response(mediaBytes, { headers: { "content-type": "video/mp4" } });
+      }
+      return new Response("not found", { status: 404 });
+    }) as typeof fetch;
+
+    const result = await postfetch(`https://www.tiktok.com/@creator/video/${id}`, { fetch: injectedFetch });
+    const [media] = result.items;
+    const blob = await downloadBlob(media.url, media.headers, { fetch: injectedFetch });
+
+    expect(blob.type).toBe("video/mp4");
+    expect(await blob.text()).toBe("protected-video-bytes");
+  });
+
   test("keeps retrying generic main pages and uses the successful fingerprint for the media", async () => {
     const id = "1122334455";
     const requests: Array<{ url: string; userAgent: string | null }> = [];

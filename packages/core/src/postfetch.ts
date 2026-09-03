@@ -29,8 +29,9 @@ export type PostfetchOptions = {
  *
  * Detects the platform from the URL host, then returns the post's media as typed
  * {@link MediaItem}s — direct CDN URLs plus the headers needed to fetch them. It
- * performs no side effects beyond the lookup; use {@link download}, {@link archive}
- * or {@link toResponse} to turn the result into bytes or a `Response`.
+ * performs no side effects beyond the lookup; use {@link download},
+ * {@link downloadBlob}, {@link archive} or {@link toResponse} to turn the result
+ * into bytes, a `Blob` or a `Response`.
  *
  * @param url A post URL from a supported platform.
  * @param options See {@link PostfetchOptions}.
