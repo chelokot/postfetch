@@ -84,6 +84,28 @@ describe("postfetch", () => {
     expect(result.items[0]).toMatchObject({ kind: "video", url: "https://video.twimg.com/hi.mp4" });
   });
 
+  test("resolves a text-only X post to metadata with no media (injected fetch)", async () => {
+    const tweet = {
+      __typename: "Tweet",
+      id_str: "2095651088502591861",
+      text: "A text-only post",
+      user: { name: "Tibo", screen_name: "thsottiaux" },
+    };
+    const result = await postfetch("https://x.com/thsottiaux/status/2095651088502591861", {
+      fetch: stubFetch({
+        "https://cdn.syndication.twimg.com/tweet-result": () =>
+          new Response(JSON.stringify(tweet), { headers: { "content-type": "application/json" } }),
+      }),
+    });
+
+    expect(result.platform).toBe("twitter");
+    expect(result.items).toEqual([]);
+    expect(result.metadata).toMatchObject({
+      text: "A text-only post",
+      author: { handle: "thsottiaux", name: "Tibo" },
+    });
+  });
+
   test("includes media and metadata from an embedded quoted X post", async () => {
     const video = (url: string) => ({
       type: "video",
@@ -145,6 +167,29 @@ describe("postfetch", () => {
 
     expect(result.platform).toBe("facebook");
     expect(result.items[0]).toMatchObject({ kind: "video", id: "123456", url: "https://cdn.test/fb.mp4" });
+  });
+
+  test("resolves a text-only Facebook post to metadata with no media (injected fetch)", async () => {
+    const canonical = "https://www.facebook.com/example/posts/a-text-only-post/987654321/";
+    const html = `<html><head>
+      <meta content="Example Page" property="og:title">
+      <meta property="og:description" content="We&#x2019;re shipping &#8212; now.">
+      <meta property="og:url" content="${canonical}">
+    </head></html>`;
+    const page = new Response(html, { headers: { "content-type": "text/html" } });
+    Object.defineProperty(page, "url", { value: canonical });
+
+    const result = await postfetch(canonical, {
+      fetch: stubFetch({
+        [canonical]: () => page,
+        "https://www.facebook.com/plugins/video.php": () => new Response("<html></html>"),
+      }),
+    });
+
+    expect(result.platform).toBe("facebook");
+    expect(result.id).toBe("987654321");
+    expect(result.items).toEqual([]);
+    expect(result.metadata).toEqual({ text: "We’re shipping — now.", author: { name: "Example Page" } });
   });
 
   test("normalizes a suffixed Facebook share link and honors a low preferred width", async () => {

@@ -112,9 +112,12 @@ A single post is written as one file, carousels and slideshows as a `.zip`; the 
 | LinkedIn | public post with an image | `image/jpeg` |
 | YouTube | `watch`, `shorts`, `live`, `embed`, `youtu.be` | up to 1080p `video/mp4` (audio remuxed) |
 | Facebook | reel, video, `/share/v/…`, `fb.watch` | `video/mp4` |
+| Facebook | public text post | metadata (`items: []`) |
 | X (Twitter) | tweet / status with video, gif, or photos (including an embedded quoted post) | `video/mp4`, `image/jpeg`, or `zip` |
+| X (Twitter) | public text-only status | metadata (`items: []`) |
 | Reddit | image or gallery post | `image/jpeg` or `zip` of images |
 | Reddit | video post (audio remuxed in-process) | `video/mp4` |
+| Reddit | text post | metadata (`items: []`) |
 | Pinterest | image pin | `image/jpeg` |
 | Pinterest | video pin (progressive rendition) | `video/mp4` |
 | Pinterest | idea pin (HLS, video + audio merged) | `video/mp4` |

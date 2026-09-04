@@ -30,9 +30,9 @@ export async function resolveTwitter(input: ResolveContext): Promise<PostfetchRe
     const media = Array.isArray(post.mediaDetails) ? post.mediaDetails.filter(object) : [];
     return media.flatMap((entry, index) => twitterItem(entry, postId, index + 1));
   });
-  if (items.length === 0) {
-    throw new Error("Twitter media not found");
-  }
+  // A text-only tweet is a valid result with metadata and no media. Syndication
+  // has already failed or returned a tombstone when the tweet is unavailable,
+  // so an empty item list here does not mean the lookup failed.
   return { archiveFilename: filename(`twitter_${id}.zip`), id, items, metadata: twitterMetadata(tweet), platform: "twitter" };
 }
 

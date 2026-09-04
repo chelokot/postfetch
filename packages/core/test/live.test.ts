@@ -322,6 +322,20 @@ describe("live network", () => {
     30_000,
   );
 
+  test.skipIf(!runs("facebook"))(
+    "facebook text post resolves to metadata with no media",
+    async () => {
+      const result = await postfetch(
+        "https://www.facebook.com/Engineering/posts/were-sharing-an-early-view-into-how-were-building-private-processing-a-new-techn/1091181673044313/",
+      );
+      expect(result.platform).toBe("facebook");
+      expect(result.items).toEqual([]);
+      expect(result.metadata?.text).toContain("Private Processing");
+      expect(result.metadata?.author?.name).toBe("Engineering at Meta");
+    },
+    30_000,
+  );
+
   // The same tweet can arrive as /i/status, /handle/status, with a /video/N
   // suffix, or with a tracking query — every shape collapses to the status id.
   test.skipIf(!runs("twitter"))(
@@ -367,6 +381,18 @@ describe("live network", () => {
       expect(result.platform).toBe("twitter");
       expect(result.items[0]?.kind).toBe("video");
       expect(result.items[0]?.mime).toBe("video/mp4");
+    },
+    30_000,
+  );
+
+  test.skipIf(!runs("twitter"))(
+    "x text post resolves to metadata with no media",
+    async () => {
+      const result = await postfetch("https://x.com/thsottiaux/status/2095651088502591861");
+      expect(result.platform).toBe("twitter");
+      expect(result.items).toEqual([]);
+      expect(result.metadata?.text).toContain("banked reset");
+      expect(result.metadata?.author?.handle).toBe("thsottiaux");
     },
     30_000,
   );
