@@ -18,8 +18,10 @@ export type PostfetchOptions = {
   /**
    * Soft file-size cap in bytes. The normal rendition is resolved and probed
    * with HEAD; when it exceeds the cap, a smaller available rendition is
-   * returned. If size discovery or the smaller rendition is unavailable, the
-   * normal result is returned unchanged.
+   * returned. X probes every available MP4 variant and picks the highest-quality
+   * complete result under the cap, or its smallest variants when none fit. For
+   * other platforms, if size discovery or a smaller rendition is unavailable,
+   * the normal result is returned unchanged.
    */
   tryMaxBytes?: number;
 };
@@ -57,10 +59,13 @@ export async function postfetch(url: string, options: PostfetchOptions = {}): Pr
   const context: ResolveContext = {
     net: createNet(options.fetch ?? globalThis.fetch),
     preferredWidth: options.preferredWidth ?? 720,
+    tryMaxBytes: options.tryMaxBytes,
     url: trimmed,
   };
   const result = await resolve(context);
-  return options.tryMaxBytes === undefined ? result : trySmaller(context, result, options.tryMaxBytes);
+  return options.tryMaxBytes === undefined || result.platform === "twitter"
+    ? result
+    : trySmaller(context, result, options.tryMaxBytes);
 }
 
 async function resolve(context: ResolveContext): Promise<PostfetchResult> {

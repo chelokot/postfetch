@@ -84,6 +84,78 @@ describe("postfetch", () => {
     expect(result.items[0]).toMatchObject({ kind: "video", url: "https://video.twimg.com/hi.mp4" });
   });
 
+  test("chooses the highest-quality X variant that keeps the whole result under tryMaxBytes", async () => {
+    const video = {
+      type: "video",
+      video_info: {
+        variants: [
+          { bitrate: 256000, content_type: "video/mp4", url: "https://video.twimg.com/low.mp4" },
+          { bitrate: 832000, content_type: "video/mp4", url: "https://video.twimg.com/mid.mp4" },
+          { bitrate: 2176000, content_type: "video/mp4", url: "https://video.twimg.com/high.mp4" },
+        ],
+      },
+    };
+    const tweet = {
+      __typename: "Tweet",
+      id_str: "100",
+      mediaDetails: [{ type: "photo", media_url_https: "https://pbs.twimg.com/image.jpg" }],
+      quoted_tweet: { id_str: "90", mediaDetails: [video] },
+    };
+    const lengths: Record<string, number> = {
+      "https://pbs.twimg.com/image.jpg?name=orig": 10,
+      "https://video.twimg.com/high.mp4": 80,
+      "https://video.twimg.com/mid.mp4": 35,
+      "https://video.twimg.com/low.mp4": 15,
+    };
+    const fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      if (url.startsWith("https://cdn.syndication.twimg.com/tweet-result")) {
+        return new Response(JSON.stringify(tweet));
+      }
+      if (init?.method === "HEAD" && lengths[url] !== undefined) {
+        return new Response(null, { headers: { "content-length": String(lengths[url]) } });
+      }
+      return new Response("not found", { status: 404 });
+    }) as typeof globalThis.fetch;
+
+    const result = await postfetch("https://x.com/outer/status/100", { fetch, tryMaxBytes: 50 });
+
+    expect(result.items.map(({ url }) => url)).toEqual([
+      "https://pbs.twimg.com/image.jpg?name=orig",
+      "https://video.twimg.com/mid.mp4",
+    ]);
+  });
+
+  test("returns X's smallest variant when none fit under tryMaxBytes", async () => {
+    const tweet = {
+      __typename: "Tweet",
+      mediaDetails: [{
+        type: "video",
+        video_info: {
+          variants: [
+            { bitrate: 256000, content_type: "video/mp4", url: "https://video.twimg.com/low.mp4" },
+            { bitrate: 2176000, content_type: "video/mp4", url: "https://video.twimg.com/high.mp4" },
+          ],
+        },
+      }],
+    };
+    const fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      if (url.startsWith("https://cdn.syndication.twimg.com/tweet-result")) {
+        return new Response(JSON.stringify(tweet));
+      }
+      if (init?.method === "HEAD") {
+        const bytes = url.endsWith("low.mp4") ? 60 : 100;
+        return new Response(null, { headers: { "content-length": String(bytes) } });
+      }
+      return new Response("not found", { status: 404 });
+    }) as typeof globalThis.fetch;
+
+    const result = await postfetch("https://x.com/i/status/123", { fetch, tryMaxBytes: 50 });
+
+    expect(result.items[0]?.url).toBe("https://video.twimg.com/low.mp4");
+  });
+
   test("resolves a text-only X post to metadata with no media (injected fetch)", async () => {
     const tweet = {
       __typename: "Tweet",

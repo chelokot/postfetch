@@ -80,7 +80,7 @@ describe("tiktok page fallbacks", () => {
 
     const result = await postfetch(`https://www.tiktok.com/@creator/video/${id}`, { fetch: injectedFetch });
     const [media] = result.items;
-    const blob = await downloadBlob(media.url, media.headers, { fetch: injectedFetch });
+    const blob = await downloadBlob(media.url, { fetch: injectedFetch, headers: media.headers });
 
     expect(blob.type).toBe("video/mp4");
     expect(await blob.text()).toBe("protected-video-bytes");

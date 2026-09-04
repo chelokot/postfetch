@@ -1,5 +1,6 @@
 import { assembleHls } from "./hls";
 import { createNet, PostfetchError, type MediaItem, type Net, type PostfetchResult } from "./internal";
+import { remuxMp4 } from "./mp4-remux";
 import { mergeAudioVideo } from "./remux";
 import { zip } from "./zip";
 
@@ -13,6 +14,16 @@ function buffered(item: MediaItem): boolean {
 export type DownloadOptions = {
   /** Custom `fetch` implementation. Defaults to the global `fetch`. */
   fetch?: typeof fetch;
+};
+
+/** Options for {@link downloadBlob}. */
+export type DownloadBlobOptions = DownloadOptions & {
+  /** Command used for opt-in MP4 remuxing. Defaults to `ffmpeg` from `PATH`. */
+  ffmpegPath?: string;
+  /** Headers required by the resolved media URL. */
+  headers?: HeadersInit;
+  /** Normalize an MP4 container with FFmpeg. Defaults to `false`. */
+  remux?: boolean;
 };
 
 /** A zip archive produced by {@link archive}. */
@@ -59,31 +70,56 @@ export async function download(item: MediaItem, options: DownloadOptions = {}): 
  *
  * This is useful for consumers that need to upload media themselves instead of
  * passing its URL to a third party. When the resolved {@link MediaItem} carries
- * required CDN headers, pass them as the second argument.
+ * required CDN headers, pass them in the options object. Set `remux: true` to
+ * normalize an MP4 with an FFmpeg stream copy; if FFmpeg is unavailable or the
+ * remux fails, the original Blob is returned.
  *
  * @param url A direct media URL returned by a resolver.
- * @param headers Headers required by the resolved media URL.
- * @param options Fetch options.
+ * @param options Headers, fetch implementation and opt-in remux behavior.
  * @returns The downloaded media as a Blob.
  *
  * @example Upload a video with FormData
  * ```ts
  * const [media] = (await postfetch(sourceUrl)).items;
- * const blob = await downloadBlob(media.url, media.headers);
+ * const blob = await downloadBlob(media.url, { headers: media.headers, remux: true });
  * form.append("video", blob, media.filename);
  * ```
  */
+export async function downloadBlob(url: string, options?: DownloadBlobOptions): Promise<Blob>;
+/** @deprecated Pass headers and fetch in a single {@link DownloadBlobOptions} object. */
+export async function downloadBlob(url: string, headers?: HeadersInit, options?: DownloadOptions): Promise<Blob>;
 export async function downloadBlob(
   url: string,
-  headers: HeadersInit = {},
-  options: DownloadOptions = {},
+  optionsOrHeaders: DownloadBlobOptions | HeadersInit = {},
+  legacyOptions: DownloadOptions = {},
 ): Promise<Blob> {
+  const modern = isDownloadBlobOptions(optionsOrHeaders);
+  const options = modern ? optionsOrHeaders : legacyOptions;
+  const headers = modern ? optionsOrHeaders.headers ?? {} : optionsOrHeaders;
   const net = createNet(options.fetch ?? globalThis.fetch);
   const response = await net(url, { headers });
   if (!response.ok || !response.body) {
     throw new PostfetchError(502, `download failed: ${response.status}`);
   }
-  return response.blob();
+  const blob = await response.blob();
+  if (!modern || optionsOrHeaders.remux !== true) {
+    return blob;
+  }
+  const remuxed = await remuxMp4(new Uint8Array(await blob.arrayBuffer()), optionsOrHeaders.ffmpegPath);
+  return remuxed ? new Blob([toArrayBuffer(remuxed)], { type: blob.type || "video/mp4" }) : blob;
+}
+
+function isDownloadBlobOptions(value: DownloadBlobOptions | HeadersInit): value is DownloadBlobOptions {
+  if (value instanceof Headers || Array.isArray(value)) {
+    return false;
+  }
+  const candidate = value as Record<string, unknown>;
+  return (
+    ("headers" in candidate && typeof candidate.headers !== "string") ||
+    typeof candidate.remux === "boolean" ||
+    typeof candidate.ffmpegPath === "string" ||
+    typeof candidate.fetch === "function"
+  );
 }
 
 /**

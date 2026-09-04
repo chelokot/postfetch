@@ -2,7 +2,7 @@
 
 **Turn social post URLs into media files.** A zero-dependency typed core, a superminimal showcase Bun image, and deploy templates.
 
-Send one URL, get back the media. Reels and videos come back as `video/mp4`, photos as `image/jpeg`, carousels and slideshows as a `zip`. No browser automation, no `yt-dlp`, no `ffmpeg`, no cookies — just the small Cobalt-style extraction paths needed for public posts, written by hand and fully typed. When a platform splits a video into separate DASH audio and video streams, they are remuxed into a single MP4 in-process — still no `ffmpeg`.
+Send one URL, get back the media. Reels and videos come back as `video/mp4`, photos as `image/jpeg`, carousels and slideshows as a `zip`. No browser automation, no `yt-dlp`, no cookies — just the small Cobalt-style extraction paths needed for public posts, written by hand and fully typed. When a platform splits a video into separate DASH audio and video streams, they are remuxed into a single MP4 in-process. An optional `downloadBlob` mode can use a local `ffmpeg` binary to normalize arbitrary MP4 containers.
 
 ## What's in the box
 
@@ -44,12 +44,12 @@ if (result.items.length === 1) {
 | `postfetch` | `(url, options?) => Promise<PostfetchResult>` | Detects the platform and resolves its media. |
 | `detect` | `(url) => Platform` | `"facebook" \| "instagram" \| "linkedin" \| "pinterest" \| "reddit" \| "soundcloud" \| "tiktok" \| "twitter" \| "youtube"`; throws on anything else. |
 | `download` | `(item, options?) => Promise<Response>` | Fetches one item from its CDN with the right headers. |
-| `downloadBlob` | `(url, headers?, options?) => Promise<Blob>` | Downloads an already-resolved direct media URL as a Blob. |
+| `downloadBlob` | `(url, options?) => Promise<Blob>` | Downloads a direct media URL as a Blob; can optionally remux MP4s. |
 | `archive` | `(result, options?) => Promise<{ bytes, filename, mime }>` | Zips every item (store mode, in-process). |
 | `toResponse` | `(result, options?) => Promise<Response>` | One item → streamed file; many → zip. Used by the server and templates. |
 | `PostfetchError` | `class { status, message }` | Carries an HTTP status for adapters to map. |
 
-`PostfetchOptions` — `{ fetch?: typeof fetch; preferredWidth?: number; tryMaxBytes?: number }`. `tryMaxBytes` is a soft byte cap: postfetch probes the normally selected media with `HEAD` and, when it is too large, returns a smaller available rendition. If the size or a smaller rendition is unavailable, it keeps the normal result. Injecting `fetch` is what makes the resolvers unit-testable offline:
+`PostfetchOptions` — `{ fetch?: typeof fetch; preferredWidth?: number; tryMaxBytes?: number }`. `tryMaxBytes` is a soft byte cap: postfetch probes the normally selected media with `HEAD` and, when it is too large, returns a smaller available rendition. For X videos, every MP4 variant is probed and the highest-quality combination whose complete result fits is selected; if none fit, the smallest variants are returned. Other platforms keep the normal result when its size or a smaller rendition cannot be discovered. Injecting `fetch` is what makes the resolvers unit-testable offline:
 
 ```ts
 const result = await postfetch(url, { fetch: myStub });
@@ -61,9 +61,18 @@ body directly:
 
 ```ts
 const [media] = (await postfetch(rawUrl)).items;
-const blob = await downloadBlob(media.url, media.headers);
+const blob = await downloadBlob(media.url, {
+  headers: media.headers,
+  remux: media.mime === "video/mp4",
+});
 form.append("video", blob, media.filename);
 ```
+
+`remux` defaults to `false`. When enabled, `downloadBlob` performs the same
+FFmpeg stream-copy normalization used by UMMR: fast-start layout, non-negative
+timestamps and no edit list. It runs `ffmpeg` from `PATH` by default (override
+with `ffmpegPath`) and falls back to the original Blob if remuxing fails. The
+legacy `(url, headers?, options?)` overload remains available for compatibility.
 
 ## Run the server
 
@@ -156,8 +165,9 @@ CI runs the offline checks and the container build on every push, plus a non-gat
 ## Design
 
 - TypeScript + Bun, zero runtime dependencies in the core.
-- No browser automation, no `yt-dlp` / `youtubei.js` / `ffmpeg` / Express / Axios / archive libraries.
+- No browser automation, no `yt-dlp` / `youtubei.js` / Express / Axios / archive libraries.
 - Fragmented-MP4 remuxing (DASH video+audio → one MP4) done by hand at the box level — no `ffmpeg`.
+- Optional arbitrary-MP4 normalization uses a local `ffmpeg` binary only when `downloadBlob(..., { remux: true })` is requested.
 - No env vars, no platform cookies.
 - Hand-written Cobalt-style extraction for public posts; zips built in-process in store mode.
 

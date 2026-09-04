@@ -189,6 +189,8 @@ export type Net = (url: string, init?: RequestInit, attempts?: number) => Promis
 export type ResolveContext = {
   net: Net;
   preferredWidth: number;
+  /** Requested soft byte cap, for resolvers that can rank exact rendition sizes. */
+  tryMaxBytes?: number;
   url: string;
 };
 

@@ -413,4 +413,23 @@ describe("live network", () => {
     },
     30_000,
   );
+
+  test.skipIf(!runs("twitter"))(
+    "x quote post selects the largest variant whose complete result fits under 50 MB",
+    async () => {
+      const result = await postfetch("https://x.com/KennethCassel/status/2095662182495117416?s=20", {
+        tryMaxBytes: 50_000_000,
+      });
+      const sizes = await Promise.all(
+        result.items.map(async (item) => {
+          const response = await fetch(item.url, { headers: item.headers, method: "HEAD" });
+          return Number(response.headers.get("content-length"));
+        }),
+      );
+      expect(result.items).toHaveLength(2);
+      expect(result.items.find((item) => item.kind === "video")?.url).toContain("/1920x1080/");
+      expect(sizes.reduce((total, size) => total + size, 0)).toBeLessThanOrEqual(50_000_000);
+    },
+    30_000,
+  );
 });

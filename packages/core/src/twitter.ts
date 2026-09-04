@@ -17,6 +17,11 @@ import {
 } from "./internal";
 import { browserUserAgent } from "./fingerprint";
 
+type TwitterCandidate = {
+  bitrate: number;
+  item: MediaItem;
+};
+
 export async function resolveTwitter(input: ResolveContext): Promise<PostfetchResult> {
   const id = tweetId(input.url);
   if (!id) {
@@ -26,10 +31,14 @@ export async function resolveTwitter(input: ResolveContext): Promise<PostfetchRe
   if (string(tweet.__typename) === "TweetTombstone") {
     throw new Error("Tweet is unavailable or age-restricted");
   }
-  const items = twitterTweets(tweet, id).flatMap(({ id: postId, tweet: post }) => {
+  const groups = twitterTweets(tweet, id).flatMap(({ id: postId, tweet: post }) => {
     const media = Array.isArray(post.mediaDetails) ? post.mediaDetails.filter(object) : [];
-    return media.flatMap((entry, index) => twitterItem(entry, postId, index + 1));
+    return media.flatMap((entry, index) => {
+      const candidates = twitterCandidates(entry, postId, index + 1);
+      return candidates.length > 0 ? [candidates] : [];
+    });
   });
+  const items = input.tryMaxBytes === undefined ? groups.map((group) => group[0].item) : await sizeLimitedItems(input, groups);
   // A text-only tweet is a valid result with metadata and no media. Syndication
   // has already failed or returned a tombstone when the tweet is unavailable,
   // so an empty item list here does not mean the lookup failed.
@@ -104,32 +113,112 @@ function syndicationToken(id: string): string {
   return ((Number(id) / 1e15) * Math.PI).toString(36).replace(/(0+|\.)/g, "");
 }
 
-function twitterItem(entry: Json, id: string, index: number): MediaItem[] {
+function twitterCandidates(entry: Json, id: string, index: number): TwitterCandidate[] {
   const headers = { "user-agent": browserUserAgent() };
   const type = string(entry.type);
   if (type === "video" || type === "animated_gif") {
-    const url = bestVariant(entry);
-    return url
-      ? [{ filename: filename(`twitter_${id}_${index}.mp4`), headers, id, kind: "video", mime: "video/mp4", platform: "twitter", url }]
-      : [];
+    return videoVariants(entry).map(({ bitrate, url }) => ({
+      bitrate,
+      item: { filename: filename(`twitter_${id}_${index}.mp4`), headers, id, kind: "video", mime: "video/mp4", platform: "twitter", url },
+    }));
   }
   const photo = string(entry.media_url_https);
   return photo
-    ? [{ filename: filename(`twitter_${id}_${index}.jpg`), headers, id, kind: "image", mime: "image/jpeg", platform: "twitter", url: `${photo}?name=orig` }]
+    ? [{ bitrate: 0, item: { filename: filename(`twitter_${id}_${index}.jpg`), headers, id, kind: "image", mime: "image/jpeg", platform: "twitter", url: `${photo}?name=orig` } }]
     : [];
 }
 
-function bestVariant(entry: Json): string | null {
+function videoVariants(entry: Json): Array<{ bitrate: number; url: string }> {
   const info = object(entry.video_info) ? entry.video_info : null;
   const variants = info && Array.isArray(info.variants) ? info.variants.filter(object) : [];
-  const best = variants
-    .filter((variant) => string(variant.content_type) === "video/mp4")
-    .reduce<Json | null>((current, variant) => {
-      const bitrate = number(variant.bitrate) ?? 0;
-      const currentBitrate = current ? number(current.bitrate) ?? 0 : -1;
-      return bitrate > currentBitrate ? variant : current;
-    }, null);
-  return best ? string(best.url) : null;
+  const seen = new Set<string>();
+  return variants
+    .flatMap((variant) => {
+      const url = string(variant.url);
+      if (string(variant.content_type) !== "video/mp4" || !url || seen.has(url)) {
+        return [];
+      }
+      seen.add(url);
+      return [{ bitrate: number(variant.bitrate) ?? 0, url }];
+    })
+    .sort((left, right) => right.bitrate - left.bitrate);
+}
+
+async function sizeLimitedItems(input: ResolveContext, groups: TwitterCandidate[][]): Promise<MediaItem[]> {
+  if (groups.length === 0 || input.tryMaxBytes === undefined) {
+    return groups.map((group) => group[0].item);
+  }
+  const sizes = new Map<string, Promise<number | null>>();
+  const size = (candidate: TwitterCandidate): Promise<number | null> => {
+    const existing = sizes.get(candidate.item.url);
+    if (existing) {
+      return existing;
+    }
+    const pending = contentLength(input.net, candidate.item);
+    sizes.set(candidate.item.url, pending);
+    return pending;
+  };
+
+  const highest = groups.map((group) => group[0]);
+  const highestSizes = await Promise.all(highest.map(size));
+  const highestTotal = knownTotal(highestSizes);
+  if (highestTotal !== null && highestTotal <= input.tryMaxBytes) {
+    return highest.map(({ item }) => item);
+  }
+
+  const sized = await Promise.all(
+    groups.map(async (group) =>
+      Promise.all(group.map(async (candidate) => ({ ...candidate, bytes: await size(candidate) }))),
+    ),
+  );
+  const fitting = bestFitting(sized, input.tryMaxBytes);
+  return (fitting ?? groups.map((group) => group.at(-1) as TwitterCandidate)).map(({ item }) => item);
+}
+
+function knownTotal(sizes: Array<number | null>): number | null {
+  return sizes.some((size) => size === null) ? null : sizes.reduce<number>((total, size) => total + (size ?? 0), 0);
+}
+
+function bestFitting(
+  groups: Array<Array<TwitterCandidate & { bytes: number | null }>>,
+  maxBytes: number,
+): TwitterCandidate[] | null {
+  let selections: Array<{ bytes: number; candidates: TwitterCandidate[]; quality: number }> = [
+    { bytes: 0, candidates: [], quality: 0 },
+  ];
+  for (const group of groups) {
+    selections = selections.flatMap((selection) =>
+      group.flatMap((candidate) => {
+        if (candidate.bytes === null || selection.bytes + candidate.bytes > maxBytes) {
+          return [];
+        }
+        return [{
+          bytes: selection.bytes + candidate.bytes,
+          candidates: [...selection.candidates, candidate],
+          quality: selection.quality + candidate.bitrate,
+        }];
+      }),
+    );
+    if (selections.length === 0) {
+      return null;
+    }
+  }
+  const best = selections.reduce((current, selection) => (selection.quality > current.quality ? selection : current));
+  return best.candidates;
+}
+
+async function contentLength(net: Net, item: MediaItem): Promise<number | null> {
+  try {
+    const response = await net(item.url, { headers: item.headers, method: "HEAD" }, 1);
+    const raw = response.ok ? response.headers.get("content-length") : null;
+    if (!raw || !/^\d+$/.test(raw)) {
+      return null;
+    }
+    const bytes = Number(raw);
+    return Number.isSafeInteger(bytes) ? bytes : null;
+  } catch {
+    return null;
+  }
 }
 
 export function tweetId(input: string): string | null {

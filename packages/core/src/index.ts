@@ -26,6 +26,7 @@ export {
   archive,
   toResponse,
   type Archive,
+  type DownloadBlobOptions,
   type DownloadOptions,
 } from "./download";
 export { PostfetchError } from "./internal";
