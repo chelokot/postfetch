@@ -44,7 +44,7 @@ if (result.items.length === 1) {
 | `postfetch` | `(url, options?) => Promise<PostfetchResult>` | Detects the platform and resolves its media. |
 | `detect` | `(url) => Platform` | `"facebook" \| "instagram" \| "linkedin" \| "pinterest" \| "reddit" \| "soundcloud" \| "tiktok" \| "twitter" \| "youtube"`; throws on anything else. |
 | `download` | `(item, options?) => Promise<Response>` | Fetches one item from its CDN with the right headers. |
-| `downloadBlob` | `(url, options?) => Promise<Blob>` | Downloads a direct media URL as a Blob; can optionally remux MP4s. |
+| `downloadBlob` | `(url, options?) => Promise<Blob \| RemuxedVideo>` | Downloads a direct media URL; `remux: true` also returns video upload metadata. |
 | `archive` | `(result, options?) => Promise<{ bytes, filename, mime }>` | Zips every item (store mode, in-process). |
 | `toResponse` | `(result, options?) => Promise<Response>` | One item → streamed file; many → zip. Used by the server and templates. |
 | `PostfetchError` | `class { status, message }` | Carries an HTTP status for adapters to map. |
@@ -61,18 +61,21 @@ body directly:
 
 ```ts
 const [media] = (await postfetch(rawUrl)).items;
-const blob = await downloadBlob(media.url, {
+const video = await downloadBlob(media.url, {
   headers: media.headers,
-  remux: media.mime === "video/mp4",
+  remux: true,
 });
-form.append("video", blob, media.filename);
+form.append("video", video.blob, media.filename);
+form.append("thumbnail", video.thumbnail, "thumbnail.jpg");
 ```
 
-`remux` defaults to `false`. When enabled, `downloadBlob` performs the same
-FFmpeg stream-copy normalization used by UMMR: fast-start layout, non-negative
-timestamps and no edit list. It runs `ffmpeg` from `PATH` by default (override
-with `ffmpegPath`) and falls back to the original Blob if remuxing fails. The
-legacy `(url, headers?, options?)` overload remains available for compatibility.
+`remux` defaults to `false`. When enabled, `downloadBlob` returns
+`{ blob, thumbnail, width, height, duration }`: an FFmpeg stream-copy normalized
+MP4 (fast-start, non-negative timestamps, no edit list), a JPEG thumbnail within
+Telegram's 320x320/200 kB limits, and presentation metadata. It runs `ffmpeg`
+and `ffprobe` from `PATH` by default (override with `ffmpegPath` and
+`ffprobePath`) and throws if the complete result cannot be produced. The legacy
+`(url, headers?, options?)` overload remains available for non-remux downloads.
 
 ## Run the server
 

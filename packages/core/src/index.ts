@@ -28,6 +28,7 @@ export {
   type Archive,
   type DownloadBlobOptions,
   type DownloadOptions,
+  type RemuxedVideo,
 } from "./download";
 export { PostfetchError } from "./internal";
 export type {

@@ -1,6 +1,6 @@
 import { assembleHls } from "./hls";
 import { createNet, PostfetchError, type MediaItem, type Net, type PostfetchResult } from "./internal";
-import { remuxMp4 } from "./mp4-remux";
+import { prepareMp4 } from "./mp4-remux";
 import { mergeAudioVideo } from "./remux";
 import { zip } from "./zip";
 
@@ -20,10 +20,21 @@ export type DownloadOptions = {
 export type DownloadBlobOptions = DownloadOptions & {
   /** Command used for opt-in MP4 remuxing. Defaults to `ffmpeg` from `PATH`. */
   ffmpegPath?: string;
+  /** Command used to inspect remuxed MP4s. Defaults to `ffprobe` from `PATH`. */
+  ffprobePath?: string;
   /** Headers required by the resolved media URL. */
   headers?: HeadersInit;
   /** Normalize an MP4 container with FFmpeg. Defaults to `false`. */
   remux?: boolean;
+};
+
+/** A normalized video and upload metadata produced by `remux: true`. */
+export type RemuxedVideo = {
+  blob: Blob;
+  duration: number;
+  height: number;
+  thumbnail: Blob;
+  width: number;
 };
 
 /** A zip archive produced by {@link archive}. */
@@ -72,27 +83,35 @@ export async function download(item: MediaItem, options: DownloadOptions = {}): 
  * passing its URL to a third party. When the resolved {@link MediaItem} carries
  * required CDN headers, pass them in the options object. Set `remux: true` to
  * normalize an MP4 with an FFmpeg stream copy; if FFmpeg is unavailable or the
- * remux fails, the original Blob is returned.
+ * remux or metadata extraction fails, the operation throws.
  *
  * @param url A direct media URL returned by a resolver.
  * @param options Headers, fetch implementation and opt-in remux behavior.
- * @returns The downloaded media as a Blob.
+ * @returns A Blob, or with `remux: true`, the normalized video and its metadata.
  *
  * @example Upload a video with FormData
  * ```ts
  * const [media] = (await postfetch(sourceUrl)).items;
- * const blob = await downloadBlob(media.url, { headers: media.headers, remux: true });
- * form.append("video", blob, media.filename);
+ * const video = await downloadBlob(media.url, { headers: media.headers, remux: true });
+ * form.append("video", video.blob, media.filename);
+ * form.append("thumbnail", video.thumbnail, "thumbnail.jpg");
  * ```
  */
-export async function downloadBlob(url: string, options?: DownloadBlobOptions): Promise<Blob>;
+export async function downloadBlob(
+  url: string,
+  options: DownloadBlobOptions & { remux: true },
+): Promise<RemuxedVideo>;
+export async function downloadBlob(
+  url: string,
+  options?: DownloadBlobOptions & { remux?: false },
+): Promise<Blob>;
 /** @deprecated Pass headers and fetch in a single {@link DownloadBlobOptions} object. */
 export async function downloadBlob(url: string, headers?: HeadersInit, options?: DownloadOptions): Promise<Blob>;
 export async function downloadBlob(
   url: string,
   optionsOrHeaders: DownloadBlobOptions | HeadersInit = {},
   legacyOptions: DownloadOptions = {},
-): Promise<Blob> {
+): Promise<Blob | RemuxedVideo> {
   const modern = isDownloadBlobOptions(optionsOrHeaders);
   const options = modern ? optionsOrHeaders : legacyOptions;
   const headers = modern ? optionsOrHeaders.headers ?? {} : optionsOrHeaders;
@@ -105,8 +124,21 @@ export async function downloadBlob(
   if (!modern || optionsOrHeaders.remux !== true) {
     return blob;
   }
-  const remuxed = await remuxMp4(new Uint8Array(await blob.arrayBuffer()), optionsOrHeaders.ffmpegPath);
-  return remuxed ? new Blob([toArrayBuffer(remuxed)], { type: blob.type || "video/mp4" }) : blob;
+  const prepared = await prepareMp4(
+    new Uint8Array(await blob.arrayBuffer()),
+    optionsOrHeaders.ffmpegPath,
+    optionsOrHeaders.ffprobePath,
+  );
+  if (!prepared) {
+    throw new PostfetchError(500, "MP4 remux or metadata extraction failed");
+  }
+  return {
+    blob: new Blob([toArrayBuffer(prepared.bytes)], { type: blob.type || "video/mp4" }),
+    duration: prepared.duration,
+    height: prepared.height,
+    thumbnail: new Blob([toArrayBuffer(prepared.thumbnail)], { type: "image/jpeg" }),
+    width: prepared.width,
+  };
 }
 
 function isDownloadBlobOptions(value: DownloadBlobOptions | HeadersInit): value is DownloadBlobOptions {
@@ -118,6 +150,7 @@ function isDownloadBlobOptions(value: DownloadBlobOptions | HeadersInit): value 
     ("headers" in candidate && typeof candidate.headers !== "string") ||
     typeof candidate.remux === "boolean" ||
     typeof candidate.ffmpegPath === "string" ||
+    typeof candidate.ffprobePath === "string" ||
     typeof candidate.fetch === "function"
   );
 }

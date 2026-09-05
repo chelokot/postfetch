@@ -1,6 +1,15 @@
 type CommandResult = {
   stderr: string;
+  stdout: string;
   success: boolean;
+};
+
+export type PreparedMp4 = {
+  bytes: Uint8Array;
+  duration: number;
+  height: number;
+  thumbnail: Uint8Array;
+  width: number;
 };
 
 export type Mp4RemuxRuntime = {
@@ -12,15 +21,16 @@ export type Mp4RemuxRuntime = {
 };
 
 /**
- * Normalize an MP4 with the same stream-copy remux used by UMMR. Encoded media
- * is left untouched; FFmpeg only rebuilds the container and timing tables.
- * Returns `null` when FFmpeg is unavailable or the input cannot be remuxed.
+ * Normalize an MP4, extract a Telegram-compatible JPEG thumbnail, and calculate
+ * the presentation dimensions and duration. Encoded media is left untouched;
+ * FFmpeg only rebuilds the container and timing tables.
  */
-export async function remuxMp4(
+export async function prepareMp4(
   bytes: Uint8Array,
   ffmpegPath = "ffmpeg",
+  ffprobePath = "ffprobe",
   runtime?: Mp4RemuxRuntime,
-): Promise<Uint8Array | null> {
+): Promise<PreparedMp4 | null> {
   let directory: string | undefined;
   let io: Mp4RemuxRuntime | undefined;
   try {
@@ -55,7 +65,53 @@ export async function remuxMp4(
       return null;
     }
     const output = await io.readFile(outputPath);
-    return output.length > 0 ? output : null;
+    if (output.length === 0) {
+      return null;
+    }
+    const thumbnailPath = `${directory}/thumbnail.jpg`;
+    const thumbnailResult = await io.run(ffmpegPath, [
+      "-nostdin",
+      "-hide_banner",
+      "-loglevel",
+      "error",
+      "-y",
+      "-i",
+      outputPath,
+      "-map",
+      "0:v:0",
+      "-frames:v",
+      "1",
+      "-vf",
+      "scale=320:320:force_original_aspect_ratio=decrease",
+      "-c:v",
+      "mjpeg",
+      "-q:v",
+      "5",
+      thumbnailPath,
+    ]);
+    if (!thumbnailResult.success) {
+      return null;
+    }
+    const thumbnail = await io.readFile(thumbnailPath);
+    if (!validThumbnail(thumbnail)) {
+      return null;
+    }
+    const probe = await io.run(ffprobePath, [
+      "-v",
+      "error",
+      "-select_streams",
+      "v:0",
+      "-show_entries",
+      "stream=width,height,duration:stream_side_data=rotation:format=duration",
+      "-of",
+      "json",
+      outputPath,
+    ]);
+    if (!probe.success) {
+      return null;
+    }
+    const metadata = parseVideoMetadata(probe.stdout);
+    return metadata ? { bytes: output, thumbnail, ...metadata } : null;
   } catch {
     return null;
   } finally {
@@ -63,6 +119,43 @@ export async function remuxMp4(
       await io.removeDir(directory).catch(() => undefined);
     }
   }
+}
+
+function validThumbnail(bytes: Uint8Array): boolean {
+  return (
+    bytes.length >= 4 &&
+    bytes.length < 200_000 &&
+    bytes[0] === 0xff &&
+    bytes[1] === 0xd8 &&
+    bytes[bytes.length - 2] === 0xff &&
+    bytes[bytes.length - 1] === 0xd9
+  );
+}
+
+function parseVideoMetadata(value: string): Pick<PreparedMp4, "duration" | "height" | "width"> | null {
+  const parsed = JSON.parse(value) as {
+    format?: { duration?: string };
+    streams?: Array<{
+      duration?: string;
+      height?: number;
+      side_data_list?: Array<{ rotation?: number }>;
+      width?: number;
+    }>;
+  };
+  const stream = parsed.streams?.[0];
+  const duration = Number(parsed.format?.duration ?? stream?.duration);
+  const width = stream?.width ?? 0;
+  const height = stream?.height ?? 0;
+  if (!stream || !(duration > 0 && Number.isFinite(duration) && width > 0 && height > 0)) {
+    return null;
+  }
+  const rotation = stream.side_data_list?.find((item) => item.rotation !== undefined)?.rotation ?? 0;
+  const sideways = Math.abs(rotation) % 180 === 90;
+  return {
+    duration: Math.ceil(duration),
+    height: sideways ? width : height,
+    width: sideways ? height : width,
+  };
 }
 
 // Deno, Bun and Node all expose the Node compatibility modules used here. They
@@ -83,15 +176,19 @@ async function nodeRuntime(): Promise<Mp4RemuxRuntime> {
     },
     run: (command, args) =>
       new Promise((resolve) => {
-        const child = spawn(command, args, { stdio: ["ignore", "ignore", "pipe"] });
+        const child = spawn(command, args, { stdio: ["ignore", "pipe", "pipe"] });
         let stderr = "";
+        let stdout = "";
+        child.stdout?.on("data", (chunk: Uint8Array) => {
+          stdout += new TextDecoder().decode(chunk);
+        });
         child.stderr?.on("data", (chunk: Uint8Array) => {
           if (stderr.length < 4096) {
             stderr += new TextDecoder().decode(chunk).slice(0, 4096 - stderr.length);
           }
         });
-        child.once("error", (error) => resolve({ stderr: error.message, success: false }));
-        child.once("close", (code) => resolve({ stderr, success: code === 0 }));
+        child.once("error", (error) => resolve({ stderr: error.message, stdout, success: false }));
+        child.once("close", (code) => resolve({ stderr, stdout, success: code === 0 }));
       }),
     writeFile: async (path, value) => {
       await writeFile(path, value);
