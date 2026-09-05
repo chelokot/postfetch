@@ -101,6 +101,7 @@ export async function downloadBlob(
   url: string,
   options: DownloadBlobOptions & { remux: true },
 ): Promise<RemuxedVideo>;
+/** Download without remuxing and return the upstream media Blob. */
 export async function downloadBlob(
   url: string,
   options?: DownloadBlobOptions & { remux?: false },
