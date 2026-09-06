@@ -48,8 +48,8 @@ export type PostAuthor = {
 
 /**
  * Post metadata normalized across platforms. Every field is optional: an absent
- * field means the platform did not expose it in the payload already fetched to
- * resolve the media (never a fabricated default — a missing count is `undefined`,
+ * field means the sources consulted did not expose it (never a fabricated
+ * default — a missing count is `undefined`,
  * not `0`). All counts are non-negative. Platform-specific fields live in `extra`.
  */
 export type PostMetadata = {

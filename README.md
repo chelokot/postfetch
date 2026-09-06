@@ -137,6 +137,8 @@ A single post is written as one file, carousels and slideshows as a `.zip`; the 
 
 For an X quote post, `items` are ordered outer post first and quoted post second; each item's `id` identifies the status it came from. The quoted post's text and author are available at `metadata.extra.quotedTweet.metadata`.
 
+X's syndication endpoint can return only a preview of long posts. When a post or quote has a long-post marker or at least 270 characters of preview text, postfetch makes a best-effort request to the public [FxTwitter API](https://docs.fxembed.com/api/introduction/) for full text. Complete text already present in the X response needs no extra request. This adds an external service dependency for text expansion; if it fails or supplies no longer text, the original preview and media remain available. The length check is a heuristic, so some ordinary tweets also trigger a lookup, and unmarked shorter previews may remain truncated.
+
 YouTube and Reddit hand out HD video and audio as separate DASH streams; both are fetched and **remuxed into one MP4 in-process** at download time — recombining the fragments at the box level, no `ffmpeg` ([`remux.ts`](packages/core/src/remux.ts)). YouTube picks H.264 video close to the preferred width (so the default stays modest, not 4K) plus the best AAC track. Pinterest idea pins and SoundCloud's HLS-only tracks expose their media as **HLS playlists**, whose CMAF segments are fetched and concatenated into a fragmented MP4 — and merged, for a separate video+audio pair — the same way, again with no `ffmpeg` ([`hls.ts`](packages/core/src/hls.ts)).
 
 ## Staying unblocked

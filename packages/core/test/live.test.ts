@@ -20,6 +20,21 @@ const reportedInstagramPhotos = [
 ];
 
 describe("live network", () => {
+  test.skipIf(!runs("twitter"))(
+    "x long post and its quote resolve beyond the syndication previews",
+    async () => {
+      const result = await postfetch("https://x.com/IterIntellectus/status/2096623134094864846?s=20");
+      expect(result.platform).toBe("twitter");
+      expect(result.metadata?.text?.length).toBeGreaterThan(1_000);
+      expect(result.metadata?.text?.endsWith("revealed priorities are funny like that")).toBe(true);
+      if (result.platform !== "twitter") throw new Error("Expected Twitter");
+      expect(result.metadata?.extra?.quotedTweet?.id).toBe("2096255497410118075");
+      expect(result.metadata?.extra?.quotedTweet?.metadata.text?.length).toBeGreaterThan(500);
+      expect(result.items[0]?.kind).toBe("image");
+    },
+    60_000,
+  );
+
   test.skipIf(!runs("instagram"))(
     "instagram reel resolves to a video, not the cover image",
     async () => {

@@ -31,6 +31,7 @@ export async function resolveTwitter(input: ResolveContext): Promise<PostfetchRe
   if (string(tweet.__typename) === "TweetTombstone") {
     throw new Error("Tweet is unavailable or age-restricted");
   }
+  await expandTwitterText(input.net, tweet, id);
   const groups = twitterTweets(tweet, id).flatMap(({ id: postId, tweet: post }) => {
     const media = Array.isArray(post.mediaDetails) ? post.mediaDetails.filter(object) : [];
     return media.flatMap((entry, index) => {
@@ -58,7 +59,7 @@ export function twitterMetadata(tweet: Json): PostMetadata & { extra?: TwitterEx
     extra.quotedTweet = { id: quotedId, metadata: twitterMetadata(quotedTweet) };
   }
   return {
-    text: (string(tweet.text) ?? string(tweet.full_text)) ?? undefined,
+    text: twitterText(tweet) ?? undefined,
     author: user
       ? {
           handle: string(user.screen_name) ?? undefined,
@@ -74,6 +75,67 @@ export function twitterMetadata(tweet: Json): PostMetadata & { extra?: TwitterEx
     nsfw: bool(tweet.possibly_sensitive),
     extra,
   };
+}
+
+function noteText(tweet: Json): string | null {
+  const note = object(tweet.note_tweet) ? tweet.note_tweet : null;
+  const results = note && object(note.note_tweet_results) ? note.note_tweet_results : null;
+  const result = results && object(results.result) ? results.result : null;
+  return (result ? string(result.text) : null) ?? (note ? string(note.text) : null);
+}
+
+function twitterText(tweet: Json): string | null {
+  return noteText(tweet) ?? string(tweet.full_text) ?? string(tweet.text);
+}
+
+function needsFullText(tweet: Json): boolean {
+  if (noteText(tweet) || string(tweet.full_text)) {
+    return false;
+  }
+  // Embedded quotes can omit note_tweet entirely. Near-limit text is only a
+  // hint: ordinary long tweets may also incur a lookup, but are never shortened.
+  return object(tweet.note_tweet) || bool(tweet.truncated) === true || (string(tweet.text)?.length ?? 0) >= 270;
+}
+
+async function expandTwitterText(net: Net, tweet: Json, rootId: string): Promise<void> {
+  const posts = new Map(twitterTweets(tweet, rootId).map(({ id, tweet: post }) => [id, post]));
+  for (const [id, post] of posts) {
+    if (!needsFullText(post)) {
+      continue;
+    }
+    try {
+      // FxTwitter's public v1 API includes full note text and embedded quotes.
+      // Keep media and other metadata from X, and don't retry an optional lookup.
+      const response = await net(`https://api.fxtwitter.com/status/${id}`, {
+        headers: { accept: "application/json", "user-agent": browserUserAgent() },
+      }, 1);
+      if (!response.ok) {
+        continue;
+      }
+      const payload: unknown = await response.json();
+      if (!object(payload) || payload.code !== 200 || !object(payload.tweet) || string(payload.tweet.id) !== id) {
+        continue;
+      }
+      let current: Json | null = payload.tweet;
+      const seen = new Set<string>();
+      while (current) {
+        const currentId = string(current.id);
+        if (!currentId || seen.has(currentId)) {
+          break;
+        }
+        seen.add(currentId);
+        const target = posts.get(currentId);
+        const raw = object(current.raw_text) ? string(current.raw_text.text) : null;
+        const text = raw ?? string(current.text);
+        if (target && needsFullText(target) && text && text.length > (twitterText(target)?.length ?? 0)) {
+          target.full_text = text;
+        }
+        current = object(current.quote) ? current.quote : null;
+      }
+    } catch {
+      // A text enrichment outage must not discard a valid syndication result.
+    }
+  }
 }
 
 function twitterTweets(tweet: Json, rootId: string): Array<{ id: string; tweet: Json }> {
