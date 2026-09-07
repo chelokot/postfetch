@@ -44,7 +44,7 @@ if (result.items.length === 1) {
 | `postfetch` | `(url, options?) => Promise<PostfetchResult>` | Detects the platform and resolves its media. |
 | `detect` | `(url) => Platform` | `"facebook" \| "instagram" \| "linkedin" \| "pinterest" \| "reddit" \| "soundcloud" \| "tiktok" \| "twitter" \| "youtube"`; throws on anything else. |
 | `download` | `(item, options?) => Promise<Response>` | Fetches one item from its CDN with the right headers. |
-| `downloadBlob` | `(url, options?) => Promise<Blob \| RemuxedVideo>` | Downloads a direct media URL; `remux: true` also returns video upload metadata. |
+| `downloadBlob` | `(itemOrUrl, options?) => Promise<Blob \| RemuxedVideo>` | Downloads a media item including separate audio, or a direct URL; `remux: true` also returns video upload metadata. |
 | `archive` | `(result, options?) => Promise<{ bytes, filename, mime }>` | Zips every item (store mode, in-process). |
 | `toResponse` | `(result, options?) => Promise<Response>` | One item → streamed file; many → zip. Used by the server and templates. |
 | `PostfetchError` | `class { status, message }` | Carries an HTTP status for adapters to map. |
@@ -61,13 +61,15 @@ body directly:
 
 ```ts
 const [media] = (await postfetch(rawUrl)).items;
-const video = await downloadBlob(media.url, {
-  headers: media.headers,
+const video = await downloadBlob(media, {
   remux: true,
 });
 form.append("video", video.blob, media.filename);
 form.append("thumbnail", video.thumbnail, "thumbnail.jpg");
 ```
+
+Pass the full media item to include separate audio and assemble HLS playlists.
+Passing only `media.url` downloads that URL alone, which may contain video without audio.
 
 `remux` defaults to `false`. When enabled, `downloadBlob` returns
 `{ blob, thumbnail, width, height, duration }`: an FFmpeg stream-copy normalized

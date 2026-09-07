@@ -77,39 +77,40 @@ export async function download(item: MediaItem, options: DownloadOptions = {}): 
 }
 
 /**
- * Download an already-resolved media URL as a Blob.
+ * Download a resolved media item or direct media URL as a Blob.
  *
  * This is useful for consumers that need to upload media themselves instead of
- * passing its URL to a third party. When the resolved {@link MediaItem} carries
- * required CDN headers, pass them in the options object. Set `remux: true` to
+ * passing its URL to a third party. Pass the full {@link MediaItem} to include
+ * separate audio, HLS playlists and required headers. A direct URL only fetches
+ * that URL; pass its required CDN headers in the options object. Set `remux: true` to
  * normalize an MP4 with an FFmpeg stream copy; if FFmpeg is unavailable or the
  * remux or metadata extraction fails, the operation throws.
  *
- * @param url A direct media URL returned by a resolver.
+ * @param input A resolved media item (recommended) or direct media URL.
  * @param options Headers, fetch implementation and opt-in remux behavior.
  * @returns A Blob, or with `remux: true`, the normalized video and its metadata.
  *
  * @example Upload a video with FormData
  * ```ts
  * const [media] = (await postfetch(sourceUrl)).items;
- * const video = await downloadBlob(media.url, { headers: media.headers, remux: true });
+ * const video = await downloadBlob(media, { remux: true });
  * form.append("video", video.blob, media.filename);
  * form.append("thumbnail", video.thumbnail, "thumbnail.jpg");
  * ```
  */
 export async function downloadBlob(
-  url: string,
+  input: string | MediaItem,
   options: DownloadBlobOptions & { remux: true },
 ): Promise<RemuxedVideo>;
 /** Download without remuxing and return the upstream media Blob. */
 export async function downloadBlob(
-  url: string,
+  input: string | MediaItem,
   options?: DownloadBlobOptions & { remux?: false },
 ): Promise<Blob>;
 /** @deprecated Pass headers and fetch in a single {@link DownloadBlobOptions} object. */
 export async function downloadBlob(url: string, headers?: HeadersInit, options?: DownloadOptions): Promise<Blob>;
 export async function downloadBlob(
-  url: string,
+  input: string | MediaItem,
   optionsOrHeaders: DownloadBlobOptions | HeadersInit = {},
   legacyOptions: DownloadOptions = {},
 ): Promise<Blob | RemuxedVideo> {
@@ -117,7 +118,9 @@ export async function downloadBlob(
   const options = modern ? optionsOrHeaders : legacyOptions;
   const headers = modern ? optionsOrHeaders.headers ?? {} : optionsOrHeaders;
   const net = createNet(options.fetch ?? globalThis.fetch);
-  const response = await net(url, { headers });
+  const response = typeof input === "string"
+    ? await net(input, { headers })
+    : await download({ ...input, headers: modern ? optionsOrHeaders.headers ?? input.headers : input.headers }, options);
   if (!response.ok || !response.body) {
     throw new PostfetchError(502, `download failed: ${response.status}`);
   }

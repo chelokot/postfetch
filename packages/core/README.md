@@ -13,9 +13,11 @@ for (const item of result.items) {
 
 `postfetch(url, options?)` detects the platform and resolves its media into a typed `PostfetchResult` (URLs plus the headers needed to fetch them). It performs no side effects beyond the lookup — `download`, `downloadBlob`, `archive` and `toResponse` materialize the result.
 
-`downloadBlob(url, options?)` materializes an already-resolved media URL for
-clients that need an uploadable `Blob`. Pass the resolved item's headers for
-protected CDN URLs: `downloadBlob(item.url, { headers: item.headers })`. Set
+`downloadBlob(itemOrUrl, options?)` materializes resolved media for clients that
+need an uploadable `Blob`. Prefer `downloadBlob(item, { remux: true })` to
+include separate audio, assemble HLS playlists and use the item's headers.
+Passing only `item.url` fetches that URL alone and may omit separate audio;
+for direct URLs, pass `{ headers: item.headers }` when needed. Set
 `remux: true` to return `{ blob, thumbnail, width, height, duration }`: a
 normalized MP4, upload thumbnail and calculated presentation metadata. Remuxing
 defaults to off, uses `ffmpeg` and `ffprobe` from `PATH` unless their paths are
