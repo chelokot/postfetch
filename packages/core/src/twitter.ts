@@ -61,6 +61,8 @@ export function twitterMetadata(tweet: Json): PostMetadata & { extra?: TwitterEx
   }
   const parent = object(tweet.parent) ? tweet.parent : null;
   const parentId = parent ? string(parent.id_str) : null;
+  const replyToId = string(tweet.in_reply_to_status_id_str) ?? parentId;
+  if (replyToId) extra.replyToId = replyToId;
   if (parent && parentId) {
     extra.parentTweet = { id: parentId, metadata: twitterMetadata(parent) };
   }

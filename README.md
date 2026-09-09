@@ -213,10 +213,10 @@ CI runs the offline checks and the container build on every push, plus a non-gat
 
 MIT
 
-### X comments
+### X and Reddit comments
 
 Pass `comments: 5` to `postfetch(url, options)` to fetch up to five direct replies,
-ranked by likes through FxTwitter. `result.comments` is always an array: it is
+ranked by likes through FxTwitter for X, or by top through Reddit’s OAuth API. `result.comments` is always an array: it is
 empty when not requested, on other platforms, or if the comment lookup fails.
 Fewer available replies are returned normally. Each comment has `id`, `url`,
 `metadata`, and its own downloadable `items` (photos, videos, and GIFs).

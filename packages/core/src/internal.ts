@@ -101,6 +101,8 @@ export type TiktokExtra = {
 
 /** X (Twitter)-specific metadata. */
 export type TwitterExtra = {
+  /** Parent status id when this post is a reply, even if the parent metadata is unavailable. */
+  replyToId?: string;
   /** BCP 47 language tag detected for the tweet. */
   lang?: string;
   /** The post quoted by this post, when X includes it in the resolved payload. */

@@ -13,7 +13,7 @@ import { resolveYoutube } from "./youtube";
 export type PostfetchOptions = {
   /** Custom `fetch` implementation — inject one to unit-test resolvers offline. Defaults to the global `fetch`. */
   fetch?: typeof fetch;
-  /** Maximum replies to fetch for X. Other platforms ignore this option. Failures return an empty array. */
+  /** Maximum direct comments to fetch for X and Reddit. Other platforms ignore this option. Failures return an empty array. */
   comments?: number;
   /** Preferred media width in pixels; the closest available rendition is chosen. Defaults to `720`. */
   preferredWidth?: number;

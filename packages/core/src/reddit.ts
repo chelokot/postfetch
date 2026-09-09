@@ -8,6 +8,7 @@ import {
   object,
   string,
   type PostMetadata,
+  type PostComment,
   type RedditExtra,
   type ResolveContext,
   type Json,
@@ -31,7 +32,7 @@ export async function resolveReddit(input: ResolveContext): Promise<PostfetchRes
   // already thrown if the post itself is missing, so empty items here mean a
   // self/text post, not a failure.
   const items = await mediaItems(input, post, id);
-  return { archiveFilename: filename(`reddit_${id}.zip`), comments: [], id, items, metadata: redditMetadata(post), platform: "reddit" };
+  return { archiveFilename: filename(`reddit_${id}.zip`), comments: await redditComments(input, token, id), id, items, metadata: redditMetadata(post), platform: "reddit" };
 }
 
 export function redditMetadata(post: Json): PostMetadata & { extra?: RedditExtra } {
@@ -315,4 +316,92 @@ function extensionOf(mime: string): string {
     return "gif";
   }
   return "jpg";
+}
+
+async function redditComments(input: ResolveContext, token: string, id: string): Promise<PostComment[]> {
+  const limit = input.comments;
+  if (!limit || !Number.isSafeInteger(limit) || limit < 0) return [];
+  try {
+    const headers = { authorization: `Bearer ${token}`, "user-agent": browserUserAgent() };
+    const response = await input.net(`https://oauth.reddit.com/comments/${id}?raw_json=1&limit=${Math.min(limit, 100)}&depth=1&sort=top`, { headers }, 1);
+    if (!response.ok) throw new Error("Reddit comments failed");
+    const payload: unknown = await response.json();
+    const listing = Array.isArray(payload) ? payload[1] : null;
+    if (!object(listing) || !object(listing.data) || !Array.isArray(listing.data.children)) throw new Error("Invalid Reddit comments");
+    const comments: PostComment[] = [];
+    const seen = new Set<string>();
+    const queued = new Set<string>();
+    const pending: string[] = [];
+    const collect = (things: unknown[]) => {
+      for (const thing of things) {
+        if (!object(thing) || !object(thing.data)) continue;
+        const data = thing.data;
+        if (data.parent_id !== `t3_${id}`) continue;
+        if (thing.kind === "more" && Array.isArray(data.children)) {
+          for (const child of data.children) {
+            if (typeof child !== "string" || !/^[a-z0-9]+$/i.test(child) || queued.has(child)) continue;
+            queued.add(child);
+            pending.push(child);
+          }
+        } else if (thing.kind === "t1" && comments.length < limit) {
+          const commentId = string(data.id);
+          if (!commentId || seen.has(commentId)) continue;
+          seen.add(commentId);
+          const body = string(data.body);
+          if (!body || body === "[deleted]" || body === "[removed]") continue;
+          comments.push(redditComment(data, commentId, id, body));
+        }
+      }
+    };
+    collect(listing.data.children);
+    while (comments.length < limit && pending.length > 0) {
+      const children = pending.splice(0, Math.min(100, limit - comments.length));
+      const url = new URL("https://oauth.reddit.com/api/morechildren");
+      url.search = new URLSearchParams({ api_type: "json", raw_json: "1", link_id: `t3_${id}`, children: children.join(","), sort: "top", depth: "1", limit_children: "true" }).toString();
+      const more = await input.net(url.href, { headers }, 1);
+      if (!more.ok) throw new Error("Reddit more comments failed");
+      const result: unknown = await more.json();
+      const json = object(result) && object(result.json) ? result.json : null;
+      const data = json && object(json.data) ? json.data : null;
+      if (!data || !Array.isArray(data.things) || (Array.isArray(json?.errors) && json.errors.length > 0)) throw new Error("Invalid additional Reddit comments");
+      collect(data.things);
+    }
+    return comments;
+  } catch {
+    return [];
+  }
+}
+
+function redditComment(data: Json, id: string, postId: string, body: string): PostComment {
+  const metadata = object(data.media_metadata) ? data.media_metadata : {};
+  // Comment images/GIFs use the same rendition metadata as Reddit galleries.
+  // Keep their inline order; do not treat arbitrary links as attachments.
+  const mediaIds = Object.keys(metadata).filter((key) => object(metadata[key])).sort((left, right) => {
+    const position = (key: string) => {
+      const meta = metadata[key];
+      const best = object(meta) && object(meta.s) ? meta.s : {};
+      const tokens = [`![img](${key})`, `![gif](${key})`, string(best.u), string(best.gif), string(best.mp4)];
+      const positions = tokens.flatMap((token) => token && body.includes(token) ? [body.indexOf(token)] : []);
+      return Math.min(...positions);
+    };
+    return position(left) - position(right);
+  });
+  const items = galleryItems({ media_metadata: metadata, gallery_data: { items: mediaIds.map((media_id) => ({ media_id })) } }, id);
+  const text = body.replace(/!\[(?:img|gif)\]\(([^)]+)\)/g, (match, key: string) => {
+    const meta = metadata[key];
+    return object(meta) && object(meta.s) && (string(meta.s.u) || string(meta.s.gif) || string(meta.s.mp4)) ? "" : match;
+  }).split("\n").filter((line) => !items.some((item) => line.trim() === item.url)).join("\n").trim();
+  const author = string(data.author);
+  return {
+    id,
+    url: `https://www.reddit.com/comments/${postId}/_/${id}/`,
+    items,
+    metadata: {
+      text,
+      author: author && author !== "[deleted]" ? { handle: author } : undefined,
+      createdAt: isoFromEpochSeconds(data.created_utc),
+      likeCount: count(data.ups),
+      nsfw: bool(data.over_18),
+    },
+  };
 }

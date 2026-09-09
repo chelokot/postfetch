@@ -197,3 +197,9 @@ describe("twitter comments", () => {
     expect(result.comments).toEqual([]);
   });
 });
+
+test("X reply identity is retained even without the parent payload", () => {
+  expect(twitterMetadata({ text: "Reply", in_reply_to_status_id_str: "123" }).extra?.replyToId).toBe("123");
+  expect(twitterMetadata({ text: "Reply", parent: { id_str: "456", text: "Parent" } }).extra?.replyToId).toBe("456");
+  expect(twitterMetadata({ text: "Post" }).extra?.replyToId).toBeUndefined();
+});
