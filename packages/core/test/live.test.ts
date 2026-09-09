@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { download, postfetch } from "../src/index";
+import { childBoxes, findBox, parseBoxes } from "../src/isobmff";
 
 // Live tests hit the real platforms and are skipped unless POSTFETCH_LIVE=1.
 // POSTFETCH_LIVE_PLATFORM narrows the run to one platform, so CI can give each
@@ -238,7 +239,7 @@ describe("live network", () => {
   // watch, shorts and youtu.be all collapse to the same video id, and each
   // shape goes through the same session bootstrap behind YouTube's bot gate.
   test.skipIf(!runs("youtube"))(
-    "youtube watch link resolves to a progressive mp4 via the session bootstrap",
+    "youtube watch link resolves to MP4 media",
     async () => {
       const result = await postfetch("https://www.youtube.com/watch?v=jNQXAC9IVRw");
       expect(result.platform).toBe("youtube");
@@ -254,7 +255,7 @@ describe("live network", () => {
   );
 
   test.skipIf(!runs("youtube"))(
-    "youtube short resolves to a progressive mp4 via the session bootstrap",
+    "youtube short resolves to MP4 media",
     async () => {
       const result = await postfetch("https://www.youtube.com/shorts/r5FpeOJItbw");
       expect(result.platform).toBe("youtube");
@@ -264,13 +265,31 @@ describe("live network", () => {
   );
 
   test.skipIf(!runs("youtube"))(
-    "youtube youtu.be shortlink resolves to a progressive mp4 via the session bootstrap",
+    "youtube youtu.be shortlink resolves to MP4 media",
     async () => {
       const result = await postfetch("https://youtu.be/VYXAND8enUo");
       expect(result.platform).toBe("youtube");
       expect(result.items[0]?.kind).toBe("video");
     },
     30_000,
+  );
+
+  test.skipIf(!runs("youtube"))(
+    "reported YouTube short downloads with both video and audio tracks",
+    async () => {
+      const result = await postfetch("https://www.youtube.com/shorts/7KZQlvBXphg");
+      expect(result.items[0]?.audio).toBeDefined();
+      const bytes = new Uint8Array(await (await download(result.items[0])).arrayBuffer());
+      const moov = findBox(parseBoxes(bytes), "moov");
+      if (!moov) throw new Error("Downloaded video has no MP4 movie box");
+      const handlers = childBoxes(bytes, moov).filter((box) => box.type === "trak").map((trak) => {
+        const mdia = findBox(childBoxes(bytes, trak), "mdia");
+        const hdlr = mdia && findBox(childBoxes(bytes, mdia), "hdlr");
+        return hdlr ? new TextDecoder().decode(bytes.subarray(hdlr.dataStart + 8, hdlr.dataStart + 12)) : "";
+      });
+      expect(handlers.sort()).toEqual(["soun", "vide"]);
+    },
+    120_000,
   );
 
   test.skipIf(!runs("facebook"))(

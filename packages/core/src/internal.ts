@@ -19,8 +19,8 @@ export type MediaItem = {
   headers: HeadersInit;
   /**
    * When `true`, {@link MediaItem.url} (and `audio.url`, if set) are HLS media
-   * playlists rather than direct files: {@link download} assembles their segments
-   * into a fragmented MP4 before serving — and merges video with audio when both
+   * playlists rather than direct files: {@link download} assembles their fMP4
+   * segments (or packages packed AAC audio) before serving, and merges tracks when both
    * are present. Callers that read `url` directly get the playlist, not the media.
    */
   hls?: boolean;

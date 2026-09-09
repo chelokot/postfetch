@@ -15,6 +15,7 @@ import {
   type MediaItem,
 } from "./internal";
 import { browserUserAgent } from "./fingerprint";
+import { parseMaster } from "./hls";
 
 type YoutubeSession = {
   cookie: string;
@@ -29,6 +30,16 @@ const androidVrClient = {
   version: "1.65.10",
 };
 
+const visionOsClient = {
+  clientName: "VISIONOS",
+  clientVersion: "1.02",
+  deviceMake: "Apple",
+  deviceModel: "RealityDevice17,1",
+  userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 15_7_3) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Safari/605.1.15",
+  osName: "visionOS",
+  osVersion: "26.5.23O471",
+};
+
 const browserCookie = "PREF=hl=en&tz=UTC; SOCS=CAI";
 
 export async function resolveYoutube(input: ResolveContext): Promise<PostfetchResult> {
@@ -36,11 +47,33 @@ export async function resolveYoutube(input: ResolveContext): Promise<PostfetchRe
   if (!id) {
     throw new Error("YouTube video id not found");
   }
-  const session = await youtubeSession(input.net, id);
-  const response = await input.net("https://www.youtube.com/youtubei/v1/player?prettyPrint=false", {
-    body: JSON.stringify(playerBody(id, session)),
-    headers: playerHeaders(session),
-    method: "POST",
+  let session: YoutubeSession | undefined;
+  try {
+    session = await youtubeSession(input.net, id);
+    const payload = await youtubePlayer(input.net, playerBody(id, session), playerHeaders(session));
+    const streams = selectStreams(payload, input.preferredWidth);
+    if (!streams) {
+      throw new Error("YouTube mp4 stream not found");
+    }
+    const headers = { "user-agent": androidVrClient.userAgent };
+    // A successful player response can still contain CDN URLs that return 403.
+    // Check the actual GET and cancel its body: HEAD/Range probes can succeed
+    // even when YouTube rejects the full download.
+    await Promise.all([streams.video, streams.audio].filter((url): url is string => url !== null).map((url) => probeStream(input.net, url, headers)));
+    return youtubeResult(id, payload, streams, headers);
+  } catch (primaryError) {
+    try {
+      return await resolveVisionOs(input, id, session?.visitorData);
+    } catch (fallbackError) {
+      const message = (error: unknown) => error instanceof Error ? error.message : String(error);
+      throw new Error(`YouTube resolution failed: ${message(primaryError)}; visionOS HLS: ${message(fallbackError)}`, { cause: fallbackError });
+    }
+  }
+}
+
+async function youtubePlayer(net: Net, body: Json, headers: HeadersInit): Promise<unknown> {
+  const response = await net("https://www.youtube.com/youtubei/v1/player?prettyPrint=false", {
+    body: JSON.stringify(body), headers, method: "POST",
   });
   if (!response.ok) {
     throw new Error(`YouTube player failed: ${response.status}`);
@@ -51,12 +84,16 @@ export async function resolveYoutube(input: ResolveContext): Promise<PostfetchRe
     const reason = object(payload) && object(payload.playabilityStatus) ? string(payload.playabilityStatus.reason) : null;
     throw new Error(reason ?? "YouTube video unavailable");
   }
-  const streams = selectStreams(payload, input.preferredWidth);
-  if (!streams) {
-    throw new Error("YouTube mp4 stream not found");
-  }
+  return payload;
+}
+
+function youtubeResult(
+  id: string,
+  payload: unknown,
+  streams: { video: string; audio: string | null; hls?: boolean },
+  headers: HeadersInit,
+): PostfetchResult {
   const title = object(payload) && object(payload.videoDetails) ? string(payload.videoDetails.title) : null;
-  const headers = { "user-agent": androidVrClient.userAgent };
   const media: MediaItem = {
     filename: filename(`youtube_${title ?? id}_${id}.mp4`),
     headers,
@@ -65,9 +102,65 @@ export async function resolveYoutube(input: ResolveContext): Promise<PostfetchRe
     mime: "video/mp4",
     platform: "youtube",
     url: streams.video,
+    ...(streams.hls ? { hls: true } : {}),
     ...(streams.audio ? { audio: { headers, url: streams.audio } } : {}),
   };
   return { archiveFilename: filename(`youtube_${id}.zip`), id, items: [media], metadata: youtubeMetadata(payload), platform: "youtube" };
+}
+
+async function probeStream(net: Net, url: string, headers: HeadersInit): Promise<void> {
+  const response = await net(url, { headers }, 1);
+  await response.body?.cancel();
+  if (!response.ok) {
+    throw new Error(`YouTube stream failed: ${response.status}`);
+  }
+}
+
+async function resolveVisionOs(input: ResolveContext, id: string, visitorData?: string): Promise<PostfetchResult> {
+  const headers = { "user-agent": visionOsClient.userAgent };
+  const payload = await youtubePlayer(input.net, {
+    videoId: id,
+    contentCheckOk: true,
+    racyCheckOk: true,
+    context: { client: { ...visionOsClient, hl: "en", gl: "US", ...(visitorData ? { visitorData } : {}) } },
+  }, {
+    ...headers,
+    "content-type": "application/json",
+    "x-youtube-client-name": "101",
+    "x-youtube-client-version": visionOsClient.clientVersion,
+    ...(visitorData ? { "x-goog-visitor-id": visitorData } : {}),
+  });
+  const streaming = object(payload) && object(payload.streamingData) ? payload.streamingData : null;
+  const manifestUrl = streaming ? string(streaming.hlsManifestUrl) : null;
+  if (!manifestUrl) {
+    throw new Error("YouTube HLS manifest not found");
+  }
+  const response = await input.net(manifestUrl, { headers });
+  if (!response.ok) {
+    throw new Error(`YouTube HLS manifest failed: ${response.status}`);
+  }
+  const master = parseMaster(await response.text(), manifestUrl);
+  // YouTube's AVC HLS variants use MPEG-TS. VP9/AV1 variants use fMP4 and
+  // work with the bundled box-level merger. Require the paired AAC-LC track.
+  const variants = master.variants.filter((variant) =>
+    /(?:^|,)(?:vp09|av01)\./i.test(variant.codecs ?? "") &&
+    /(?:^|,)mp4a\.40\.2(?:,|$)/i.test(variant.codecs ?? "") &&
+    variant.audioGroup && master.audio[variant.audioGroup]
+  ).sort((left, right) =>
+    Math.abs(left.width - input.preferredWidth) - Math.abs(right.width - input.preferredWidth) || right.bandwidth - left.bandwidth
+  );
+  const variant = variants[0];
+  if (!variant?.audioGroup) {
+    throw new Error("YouTube fragmented MP4 HLS video with AAC audio not found");
+  }
+  const playlist = await input.net(variant.url, { headers });
+  if (!playlist.ok) {
+    throw new Error(`YouTube HLS playlist failed: ${playlist.status}`);
+  }
+  if (!(await playlist.text()).includes("#EXT-X-MAP:")) {
+    throw new Error("YouTube HLS video is not fragmented MP4");
+  }
+  return youtubeResult(id, payload, { video: variant.url, audio: master.audio[variant.audioGroup], hls: true }, headers);
 }
 
 export function youtubeMetadata(payload: unknown): PostMetadata & { extra?: YoutubeExtra } {

@@ -419,6 +419,7 @@ describe("postfetch", () => {
         "https://www.youtube.com/s/player/": () => new Response(playerJs),
         "https://www.youtube.com/youtubei/v1/player": () =>
           new Response(JSON.stringify(player), { headers: { "content-type": "application/json" } }),
+        "https://cdn.test/yt.mp4": () => new Response(Uint8Array.of(0), { status: 206 }),
       }),
     });
 
@@ -450,6 +451,7 @@ describe("postfetch", () => {
         "https://www.youtube.com/s/player/": () => new Response(playerJs),
         "https://www.youtube.com/youtubei/v1/player": () =>
           new Response(JSON.stringify(player), { headers: { "content-type": "application/json" } }),
+        "https://cdn.test/": () => new Response(Uint8Array.of(0), { status: 206 }),
       }),
     });
 

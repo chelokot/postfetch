@@ -1,14 +1,15 @@
 import { concat } from "./isobmff";
 import type { Net } from "./internal";
+import { packedAacToMp4 } from "./packed-aac";
 
 // HLS support for the fMP4/CMAF playlists reddit-style muxing already covers:
 // a media playlist is an EXT-X-MAP init plus media segments (often byte ranges of
-// one CMAF file), so assembling it is just fetching those byte ranges in order and
-// concatenating them into a fragmented MP4. No MPEG-TS demuxing is involved.
+// one CMAF file). Packed AAC audio is also packaged into fMP4 for merging with
+// YouTube's HLS video. No MPEG-TS demuxing is involved.
 
 type Segment = { url: string; range: { length: number; offset: number } | null };
 
-export type HlsVariant = { width: number; height: number; bandwidth: number; url: string; audioGroup: string | null };
+export type HlsVariant = { width: number; height: number; bandwidth: number; url: string; audioGroup: string | null; codecs?: string };
 export type HlsMaster = { variants: HlsVariant[]; audio: Record<string, string> };
 
 export function isMasterPlaylist(text: string): boolean {
@@ -18,25 +19,30 @@ export function isMasterPlaylist(text: string): boolean {
 export function parseMaster(text: string, baseUrl: string): HlsMaster {
   const lines = text.split("\n").map((line) => line.trim());
   const audio: Record<string, string> = {};
+  const defaultAudio = new Set<string>();
   const variants: HlsVariant[] = [];
   for (let index = 0; index < lines.length; index += 1) {
     const line = lines[index];
     if (line.startsWith("#EXT-X-MEDIA:") && /TYPE=AUDIO/.test(line)) {
       const group = line.match(/GROUP-ID="([^"]+)"/)?.[1];
       const uri = line.match(/URI="([^"]+)"/)?.[1];
-      if (group && uri) {
+      const isDefault = /(?:^|,)DEFAULT=YES(?:,|$)/.test(line);
+      if (group && uri && (!audio[group] || (isDefault && !defaultAudio.has(group)))) {
         audio[group] = new URL(uri, baseUrl).href;
+        if (isDefault) defaultAudio.add(group);
       }
     } else if (line.startsWith("#EXT-X-STREAM-INF:")) {
       const target = lines[index + 1];
       if (target && !target.startsWith("#")) {
         const resolution = line.match(/RESOLUTION=(\d+)x(\d+)/);
+        const codecs = line.match(/CODECS="([^"]+)"/)?.[1];
         variants.push({
           width: resolution ? Number(resolution[1]) : 0,
           height: resolution ? Number(resolution[2]) : 0,
           bandwidth: Number(line.match(/BANDWIDTH=(\d+)/)?.[1] ?? 0),
           url: new URL(target, baseUrl).href,
           audioGroup: line.match(/AUDIO="([^"]+)"/)?.[1] ?? null,
+          ...(codecs ? { codecs } : {}),
         });
       }
     }
@@ -53,7 +59,8 @@ export async function assembleHls(net: Net, playlistUrl: string, headers: Header
   if (segments.length === 0) {
     throw new Error("HLS playlist has no segments");
   }
-  return concat(await fetchSegments(net, segments, headers));
+  const bytes = await fetchSegments(net, segments, headers);
+  return packedAacToMp4(bytes) ?? concat(bytes);
 }
 
 function mediaSegments(text: string, baseUrl: string): Segment[] {
