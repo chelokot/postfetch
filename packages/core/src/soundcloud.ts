@@ -22,7 +22,7 @@ export async function resolveSoundcloud(input: ResolveContext): Promise<Postfetc
   const track = await resolveTrack(input.net, url, clientId);
   const id = trackId(track);
   const item = await audioItem(input.net, track, id, clientId);
-  return { archiveFilename: filename(`soundcloud_${id}.zip`), id, items: [item], metadata: soundcloudMetadata(track), platform: "soundcloud" };
+  return { archiveFilename: filename(`soundcloud_${id}.zip`), comments: [], id, items: [item], metadata: soundcloudMetadata(track), platform: "soundcloud" };
 }
 
 export function soundcloudMetadata(track: Json): PostMetadata & { extra?: SoundcloudExtra } {

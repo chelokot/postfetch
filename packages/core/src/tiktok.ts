@@ -42,7 +42,7 @@ export async function resolveTiktok(input: ResolveContext): Promise<PostfetchRes
   if (items.length === 0) {
     throw new Error("TikTok media not found");
   }
-  return { archiveFilename: filename(`tiktok_${user}_${id}.zip`), id, items, metadata: tiktokMetadata(page.item), platform: "tiktok" };
+  return { archiveFilename: filename(`tiktok_${user}_${id}.zip`), comments: [], id, items, metadata: tiktokMetadata(page.item), platform: "tiktok" };
 }
 
 async function videoPage(

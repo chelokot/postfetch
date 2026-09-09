@@ -105,7 +105,7 @@ function youtubeResult(
     ...(streams.hls ? { hls: true } : {}),
     ...(streams.audio ? { audio: { headers, url: streams.audio } } : {}),
   };
-  return { archiveFilename: filename(`youtube_${id}.zip`), id, items: [media], metadata: youtubeMetadata(payload), platform: "youtube" };
+  return { archiveFilename: filename(`youtube_${id}.zip`), comments: [], id, items: [media], metadata: youtubeMetadata(payload), platform: "youtube" };
 }
 
 async function probeStream(net: Net, url: string, headers: HeadersInit): Promise<void> {

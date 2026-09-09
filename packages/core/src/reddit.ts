@@ -31,7 +31,7 @@ export async function resolveReddit(input: ResolveContext): Promise<PostfetchRes
   // already thrown if the post itself is missing, so empty items here mean a
   // self/text post, not a failure.
   const items = await mediaItems(input, post, id);
-  return { archiveFilename: filename(`reddit_${id}.zip`), id, items, metadata: redditMetadata(post), platform: "reddit" };
+  return { archiveFilename: filename(`reddit_${id}.zip`), comments: [], id, items, metadata: redditMetadata(post), platform: "reddit" };
 }
 
 export function redditMetadata(post: Json): PostMetadata & { extra?: RedditExtra } {

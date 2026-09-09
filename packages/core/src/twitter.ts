@@ -9,6 +9,7 @@ import {
   string,
   type PostMetadata,
   type TwitterExtra,
+  type PostComment,
   type ResolveContext,
   type Json,
   type Net,
@@ -43,7 +44,7 @@ export async function resolveTwitter(input: ResolveContext): Promise<PostfetchRe
   // A text-only tweet is a valid result with metadata and no media. Syndication
   // has already failed or returned a tombstone when the tweet is unavailable,
   // so an empty item list here does not mean the lookup failed.
-  return { archiveFilename: filename(`twitter_${id}.zip`), id, items, metadata: twitterMetadata(tweet), platform: "twitter" };
+  return { archiveFilename: filename(`twitter_${id}.zip`), comments: await twitterComments(input, id), id, items, metadata: twitterMetadata(tweet), platform: "twitter" };
 }
 
 export function twitterMetadata(tweet: Json): PostMetadata & { extra?: TwitterExtra } {
@@ -287,4 +288,78 @@ async function contentLength(net: Net, item: MediaItem): Promise<number | null> 
 
 export function tweetId(input: string): string | null {
   return asUrl(input).pathname.match(/\/status(?:es)?\/(\d+)/)?.[1] ?? null;
+}
+
+async function twitterComments(input: ResolveContext, id: string): Promise<PostComment[]> {
+  const limit = input.comments;
+  if (!limit || !Number.isSafeInteger(limit) || limit < 0) return [];
+  try {
+    const comments: PostComment[] = [];
+    const seen = new Set<string>();
+    const cursors = new Set<string>();
+    let cursor: string | null = null;
+    do {
+      const url = new URL(`https://api.fxtwitter.com/2/conversation/${id}`);
+      if (cursor) url.searchParams.set("cursor", cursor);
+      const response = await input.net(url.href, { headers: { accept: "application/json", "user-agent": browserUserAgent() } }, 1);
+      if (!response.ok) throw new Error("Comment lookup failed");
+      const payload: unknown = await response.json();
+      if (!object(payload) || payload.code !== 200 || !Array.isArray(payload.replies)) throw new Error("Invalid comments");
+      const previousCount = comments.length;
+      for (const reply of payload.replies) {
+        if (!object(reply)) continue;
+        const replyId = string(reply.id);
+        const parent = object(reply.replying_to) ? string(reply.replying_to.status) : null;
+        if (!replyId || parent !== id || seen.has(replyId)) continue;
+        seen.add(replyId);
+        comments.push(twitterComment(reply, replyId));
+        if (comments.length >= limit) return comments;
+      }
+      cursor = object(payload.cursor) ? string(payload.cursor.bottom) : null;
+      if (!cursor || cursors.has(cursor) || comments.length === previousCount) break;
+      cursors.add(cursor);
+    } while (comments.length < limit);
+    return comments;
+  } catch {
+    return [];
+  }
+}
+
+function twitterComment(reply: Json, id: string): PostComment {
+  const author = object(reply.author) ? reply.author : {};
+  const verification = object(author.verification) ? author.verification : {};
+  const media = object(reply.media) && Array.isArray(reply.media.all) ? reply.media.all.filter(object) : [];
+  const items: MediaItem[] = media.flatMap((entry, index) => {
+    const url = string(entry.url);
+    const photo = entry.type === "photo";
+    if (!url || (!photo && entry.type !== "video" && entry.type !== "gif" && entry.type !== "animated_gif")) return [];
+    return [{
+      id,
+      platform: "twitter",
+      filename: filename(`twitter_${id}_${index + 1}.${photo ? "jpg" : "mp4"}`),
+      kind: photo ? "image" : "video",
+      mime: photo ? "image/jpeg" : "video/mp4",
+      url,
+      headers: { "user-agent": browserUserAgent() },
+    }];
+  });
+  return {
+    id,
+    url: `https://x.com/i/status/${id}`,
+    items,
+    metadata: {
+      text: string(reply.text) ?? undefined,
+      author: {
+        handle: string(author.screen_name) ?? undefined,
+        name: string(author.name) ?? undefined,
+        verified: bool(verification.verified),
+      },
+      createdAt: isoFromDateString(reply.created_at),
+      likeCount: count(reply.likes),
+      commentCount: count(reply.replies),
+      shareCount: count(reply.reposts),
+      viewCount: count(reply.views),
+      nsfw: bool(reply.possibly_sensitive),
+    },
+  };
 }

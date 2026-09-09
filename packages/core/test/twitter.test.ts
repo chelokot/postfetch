@@ -129,3 +129,71 @@ test("preserves reply parents without adding their media", async () => {
   });
   expect(twitterMetadata({ parent: { text: "Missing id" } }).extra?.parentTweet).toBeUndefined();
 });
+
+describe("twitter comments", () => {
+  const id = "2097547797444911520";
+  const reply = (id: string, parent = "2097547797444911520") => ({
+    id, text: `Reply ${id}`, author: { screen_name: "reader", name: "Reader", verification: { verified: true } },
+    replying_to: { status: parent }, created_at: "2026-09-09T05:00:00Z", likes: 5,
+    media: { all: [{ type: "photo", url: "https://pbs.twimg.com/reply.jpg" }, { type: "gif", url: "https://video.twimg.com/reply.mp4" }] },
+  });
+  async function resolve(comments: number | undefined, pages: Array<unknown | Response>) {
+    const requests: string[] = [];
+    const result = await postfetch(`https://x.com/example/status/${id}`, {
+      comments,
+      fetch: (async (input) => {
+        const url = String(input);
+        if (url.includes("syndication")) return Response.json({ id_str: id, text: "Root", mediaDetails: [] });
+        requests.push(url);
+        const page = pages.shift();
+        if (page === undefined) throw new Error("offline");
+        return page instanceof Response ? page : Response.json(page);
+      }) as typeof fetch,
+    });
+    return { result, requests };
+  }
+
+  test.each([undefined, 0, -1, 1.5, Infinity, NaN])("returns [] without a request for %s", async (limit) => {
+    const { result, requests } = await resolve(limit, []);
+    expect(result.comments).toEqual([]);
+    expect(requests).toEqual([]);
+  });
+
+  test("caps direct replies, preserves metadata and media, and excludes nested replies", async () => {
+    const { result, requests } = await resolve(2, [{ code: 200, replies: [reply("1", "other"), reply("2"), reply("2"), reply("3"), reply("4")], cursor: { bottom: "next" } }]);
+    expect(result.comments.map((c) => c.id)).toEqual(["2", "3"]);
+    expect(result.comments[0].metadata).toMatchObject({ text: "Reply 2", author: { handle: "reader", verified: true }, likeCount: 5 });
+    expect(result.comments[0].items.map((item) => item.kind)).toEqual(["image", "video"]);
+    expect(result.items).toEqual([]);
+    expect(requests).toHaveLength(1);
+  });
+
+  test("paginates, deduplicates, and accepts fewer replies than requested", async () => {
+    const { result, requests } = await resolve(8, [
+      { code: 200, replies: [reply("1")], cursor: { bottom: "next+=" } },
+      { code: 200, replies: [reply("1"), reply("2")], cursor: {} },
+    ]);
+    expect(result.comments.map((c) => c.id)).toEqual(["1", "2"]);
+    expect(new URL(requests[1]).searchParams.get("cursor")).toBe("next+=");
+  });
+
+  test("stops repeated cursors", async () => {
+    const { result, requests } = await resolve(8, [
+      { code: 200, replies: [reply("1")], cursor: { bottom: "next" } },
+      { code: 200, replies: [reply("1")], cursor: { bottom: "next" } },
+    ]);
+    expect(result.comments).toHaveLength(1);
+    expect(requests).toHaveLength(2);
+  });
+
+  test.each([null, { code: 500 }, new Response("oops"), new Response(null, { status: 503 })])("returns [] on malformed or failed lookup: %j", async (page) => {
+    const { result } = await resolve(5, [page]);
+    expect(result.comments).toEqual([]);
+    expect(result.metadata?.text).toBe("Root");
+  });
+
+  test("returns [] if a later page fails", async () => {
+    const { result } = await resolve(5, [{ code: 200, replies: [reply("1")], cursor: { bottom: "next" } }]);
+    expect(result.comments).toEqual([]);
+  });
+});

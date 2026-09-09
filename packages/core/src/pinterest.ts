@@ -24,7 +24,7 @@ export async function resolvePinterest(input: ResolveContext): Promise<Postfetch
   if (items.length === 0) {
     throw new Error("Pinterest media not found");
   }
-  return { archiveFilename: filename(`pinterest_${id}.zip`), id, items, metadata: pinterestMetadata(pin), platform: "pinterest" };
+  return { archiveFilename: filename(`pinterest_${id}.zip`), comments: [], id, items, metadata: pinterestMetadata(pin), platform: "pinterest" };
 }
 
 export function pinterestMetadata(pin: Json): PostMetadata & { extra?: PinterestExtra } {

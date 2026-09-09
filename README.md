@@ -212,3 +212,13 @@ CI runs the offline checks and the container build on every push, plus a non-gat
 ## License
 
 MIT
+
+### X comments
+
+Pass `comments: 5` to `postfetch(url, options)` to fetch up to five direct replies,
+ranked by likes through FxTwitter. `result.comments` is always an array: it is
+empty when not requested, on other platforms, or if the comment lookup fails.
+Fewer available replies are returned normally. Each comment has `id`, `url`,
+`metadata`, and its own downloadable `items` (photos, videos, and GIFs).
+Comment media stays separate from `result.items`; use `download` or `downloadBlob`
+on those items to fetch the bytes. The main post still resolves if replies fail.

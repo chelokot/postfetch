@@ -49,9 +49,11 @@ describe("postfetch", () => {
       require: [{ media: { code: "DZ0", media_type: 2, video_versions: [{ type: 101, url: "https://cdn.test/reel.mp4" }] } }],
     })}</script></body></html>`;
     const result = await postfetch("https://www.instagram.com/reel/DZ0/", {
+      comments: 5,
       fetch: stubFetch({ "https://www.instagram.com/p/DZ0/": () => new Response(html) }),
     });
 
+    expect(result.comments).toEqual([]);
     expect(result.platform).toBe("instagram");
     expect(result.items).toHaveLength(1);
     expect(result.items[0]).toMatchObject({ kind: "video", mime: "video/mp4", url: "https://cdn.test/reel.mp4" });

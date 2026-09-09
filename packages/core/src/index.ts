@@ -40,6 +40,7 @@ export type {
   Platform,
   PlatformResult,
   PostAuthor,
+  PostComment,
   PostfetchReason,
   PostfetchResult,
   PostMetadata,

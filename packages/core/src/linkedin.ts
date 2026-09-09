@@ -51,6 +51,7 @@ export async function resolveLinkedin(input: ResolveContext): Promise<PostfetchR
   }
   return {
     archiveFilename: filename(`linkedin_${id}.zip`),
+    comments: [],
     id,
     items,
     metadata: linkedinMetadata(post),

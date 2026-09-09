@@ -16,7 +16,7 @@ export async function resolveFacebook(input: ResolveContext): Promise<PostfetchR
     // has no downloadable media. Require post metadata from the canonical page
     // so a missing or login-walled video does not become a false success.
     if (pageMetadata?.text) {
-      return { archiveFilename: filename(`facebook_${id}.zip`), id, items: [], metadata: pageMetadata, platform: "facebook" };
+      return { archiveFilename: filename(`facebook_${id}.zip`), comments: [], id, items: [], metadata: pageMetadata, platform: "facebook" };
     }
     throw new PostfetchError(404, "Facebook video not found", "notFound");
   }
@@ -31,6 +31,7 @@ export async function resolveFacebook(input: ResolveContext): Promise<PostfetchR
   };
   return {
     archiveFilename: filename(`facebook_${id}.zip`),
+    comments: [],
     id,
     items: [item],
     metadata: mergeMetadata(pageMetadata, watch?.metadata),

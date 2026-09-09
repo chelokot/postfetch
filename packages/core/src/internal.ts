@@ -157,6 +157,18 @@ export type PinterestExtra = {
   outboundLink?: string;
 };
 
+/** A reply with its own metadata and downloadable media, separate from the main post. */
+export type PostComment = {
+  /** Reply post id. */
+  id: string;
+  /** Permalink to the reply. */
+  url: string;
+  /** Normalized reply metadata. */
+  metadata: PostMetadata;
+  /** Attachments belonging to this reply. */
+  items: MediaItem[];
+};
+
 /** The result of resolving a post: its platform, id, media items and metadata. */
 export type PostfetchResult =
   | PlatformResult<"facebook", never>
@@ -173,6 +185,8 @@ export type PostfetchResult =
 export type PlatformResult<P extends Platform, Extra> = {
   /** Suggested filename when zipping every item. */
   archiveFilename: string;
+  /** Requested replies, or an empty array when not requested, unsupported or unavailable. */
+  comments: PostComment[];
   /** Platform post/media id. */
   id: string;
   /** The post's media, in order. */
@@ -191,6 +205,7 @@ export type Net = (url: string, init?: RequestInit, attempts?: number) => Promis
 export type ResolveContext = {
   net: Net;
   preferredWidth: number;
+  comments?: number;
   /** Requested soft byte cap, for resolvers that can rank exact rendition sizes. */
   tryMaxBytes?: number;
   url: string;

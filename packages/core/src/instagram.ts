@@ -80,7 +80,7 @@ export async function resolveInstagram(input: ResolveContext): Promise<Postfetch
   if (items.length === 0) {
     throw new Error("Instagram media url not found");
   }
-  return { archiveFilename: filename(`instagram_${code}.zip`), id: code, items, metadata: instagramMetadata(media), platform: "instagram" };
+  return { archiveFilename: filename(`instagram_${code}.zip`), comments: [], id: code, items, metadata: instagramMetadata(media), platform: "instagram" };
 }
 
 async function instagramUnavailable(net: Net, code: string): Promise<PostfetchError> {
