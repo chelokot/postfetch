@@ -161,7 +161,7 @@ function parseVideoMetadata(value: string): Pick<PreparedMp4, "duration" | "heig
 // Deno, Bun and Node all expose the Node compatibility modules used here. They
 // stay behind dynamic imports so browser/edge consumers that leave remux off do
 // not load or execute any process/filesystem code.
-async function nodeRuntime(): Promise<Mp4RemuxRuntime> {
+export async function nodeRuntime(): Promise<Mp4RemuxRuntime> {
   const [{ spawn }, { mkdtemp, readFile, rm, writeFile }, { tmpdir }, { join }] = await Promise.all([
     import("node:child_process"),
     import("node:fs/promises"),

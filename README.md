@@ -45,6 +45,7 @@ if (result.items.length === 1) {
 | `detect` | `(url) => Platform` | `"facebook" \| "instagram" \| "linkedin" \| "pinterest" \| "reddit" \| "soundcloud" \| "tiktok" \| "twitter" \| "youtube"`; throws on anything else. |
 | `download` | `(item, options?) => Promise<Response>` | Fetches one item from its CDN with the right headers. |
 | `downloadBlob` | `(itemOrUrl, options?) => Promise<Blob \| RemuxedVideo>` | Downloads a media item including separate audio, or a direct URL; `remux: true` also returns video upload metadata. |
+| `buildAudioSliderVideo` | `(items, options) => Promise<Blob>` | Encodes images/videos followed by one audio item into an MP4 slideshow using local FFmpeg. |
 | `archive` | `(result, options?) => Promise<{ bytes, filename, mime }>` | Zips every item (store mode, in-process). |
 | `toResponse` | `(result, options?) => Promise<Response>` | One item → streamed file; many → zip. Used by the server and templates. |
 | `PostfetchError` | `class { status, message }` | Carries an HTTP status for adapters to map. |
@@ -78,6 +79,33 @@ Telegram's 320x320/200 kB limits, and presentation metadata. It runs `ffmpeg`
 and `ffprobe` from `PATH` by default (override with `ffmpegPath` and
 `ffprobePath`) and throws if the complete result cannot be produced. The legacy
 `(url, headers?, options?)` overload remains available for non-remux downloads.
+
+Turn a photo carousel with a soundtrack into a video:
+
+```ts
+import { buildAudioSliderVideo, postfetch } from "@postfetch/core";
+
+const result = await postfetch(photoUrl);
+const blob = await buildAudioSliderVideo(result.items, { delay: 3000 });
+form.append("video", blob, "slideshow.mp4");
+```
+
+`buildAudioSliderVideo` requires one or more `image`/`video` items followed by
+exactly one `audio` item. `delay` is a positive number of milliseconds per visual,
+including a right-to-left transition over the last 300 ms (or half the delay,
+whichever is shorter). Timing rounds to 30 fps, with a minimum of two frames per
+visual; total duration is the visual count times that rounded delay. The last
+visual stays on screen, and a single visual has no transition. Video clips loop
+or trim to fit; their original audio is discarded. The trailing audio loops and
+is trimmed to the slideshow duration.
+
+The returned `video/mp4` Blob contains H.264 video and AAC audio. Visuals fit
+inside a 720×1280 canvas with black padding and preserved aspect ratio. Override
+`width` and `height` with positive even integers. `AudioSliderVideoOptions` also
+accepts `fetch` and `ffmpegPath`. Downloads preserve item headers and assemble
+HLS/separate streams. This utility requires Node, Bun or Deno with filesystem
+and process access, plus FFmpeg with the `libx264` encoder; it does not run in
+browsers or edge workers. Temporary files are removed on success and failure.
 
 ## Run the server
 
@@ -175,6 +203,7 @@ CI runs the offline checks and the container build on every push, plus a non-gat
 - No browser automation, no `yt-dlp` / `youtubei.js` / Express / Axios / archive libraries.
 - Fragmented-MP4 remuxing (DASH video+audio → one MP4) done by hand at the box level — no `ffmpeg`.
 - Optional arbitrary-MP4 normalization uses a local `ffmpeg` binary only when `downloadBlob(..., { remux: true })` is requested.
+- Optional slideshow encoding uses local FFmpeg when `buildAudioSliderVideo` is called.
 - No env vars, no platform cookies.
 - Hand-written Cobalt-style extraction for public posts; zips built in-process in store mode.
 

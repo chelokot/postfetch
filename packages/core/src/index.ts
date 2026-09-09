@@ -20,6 +20,7 @@
  * @module
  */
 export { postfetch, detect, type PostfetchOptions } from "./postfetch";
+export { buildAudioSliderVideo, type AudioSliderVideoOptions } from "./audio-slider";
 export {
   download,
   downloadBlob,
