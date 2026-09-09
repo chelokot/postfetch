@@ -111,3 +111,21 @@ describe("twitter full text", () => {
     expect(requests).toHaveLength(2);
   });
 });
+
+test("preserves reply parents without adding their media", async () => {
+  const result = await postfetch("https://x.com/DataWaveAU/status/1278951739878543360", {
+    fetch: (async (_input: string | URL | Request) => Response.json({
+      id_str: "1278951739878543360", text: "@Altimor Stop the hype",
+      parent: { id_str: "1278736953836400640", text: "GPT3 writing code.",
+        created_at: "2020-07-02T17:07:02.000Z", user: { name: "Flo", verified: true },
+        mediaDetails: [{ type: "photo", media_url_https: "https://pbs.twimg.com/parent.jpg" }] },
+    })) as typeof fetch,
+  });
+  if (result.platform !== "twitter") throw new Error("Expected Twitter");
+  expect(result.items).toEqual([]);
+  expect(result.metadata?.extra?.parentTweet).toMatchObject({
+    id: "1278736953836400640", metadata: { text: "GPT3 writing code.",
+      createdAt: "2020-07-02T17:07:02.000Z", author: { name: "Flo", verified: true } },
+  });
+  expect(twitterMetadata({ parent: { text: "Missing id" } }).extra?.parentTweet).toBeUndefined();
+});

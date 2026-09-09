@@ -105,6 +105,8 @@ export type TwitterExtra = {
   lang?: string;
   /** The post quoted by this post, when X includes it in the resolved payload. */
   quotedTweet?: TwitterQuotedTweet;
+  /** The parent this post replies to, when included by X. Media is not collected. */
+  parentTweet?: TwitterQuotedTweet;
 };
 
 /** A quoted X post and its normalized metadata. */

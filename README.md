@@ -167,7 +167,7 @@ A single post is written as one file, carousels and slideshows as a `.zip`; the 
 | Pinterest | idea pin (HLS, video + audio merged) | `video/mp4` |
 | SoundCloud | track (progressive or HLS) | `audio/mpeg` or `audio/mp4` |
 
-For an X quote post, `items` are ordered outer post first and quoted post second; each item's `id` identifies the status it came from. The quoted post's text and author are available at `metadata.extra.quotedTweet.metadata`.
+For an X quote post, `items` are ordered outer post first and quoted post second; each item's `id` identifies the status it came from. The quoted post's text and author are available at `metadata.extra.quotedTweet.metadata`. For replies, `metadata.extra.parentTweet` preserves the parent status id and normalized metadata when X includes it. Parent media is not added to `items`.
 
 X's syndication endpoint can return only a preview of long posts. When a post or quote has a long-post marker or at least 270 characters of preview text, postfetch makes a best-effort request to the public [FxTwitter API](https://docs.fxembed.com/api/introduction/) for full text. Complete text already present in the X response needs no extra request. This adds an external service dependency for text expansion; if it fails or supplies no longer text, the original preview and media remain available. The length check is a heuristic, so some ordinary tweets also trigger a lookup, and unmarked shorter previews may remain truncated.
 

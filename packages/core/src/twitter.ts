@@ -58,6 +58,11 @@ export function twitterMetadata(tweet: Json): PostMetadata & { extra?: TwitterEx
   if (quotedTweet && quotedId) {
     extra.quotedTweet = { id: quotedId, metadata: twitterMetadata(quotedTweet) };
   }
+  const parent = object(tweet.parent) ? tweet.parent : null;
+  const parentId = parent ? string(parent.id_str) : null;
+  if (parent && parentId) {
+    extra.parentTweet = { id: parentId, metadata: twitterMetadata(parent) };
+  }
   return {
     text: twitterText(tweet) ?? undefined,
     author: user
@@ -98,7 +103,7 @@ function needsFullText(tweet: Json): boolean {
 }
 
 async function expandTwitterText(net: Net, tweet: Json, rootId: string): Promise<void> {
-  const posts = new Map(twitterTweets(tweet, rootId).map(({ id, tweet: post }) => [id, post]));
+  const posts = new Map(twitterTweets(tweet, rootId, true).map(({ id, tweet: post }) => [id, post]));
   for (const [id, post] of posts) {
     if (!needsFullText(post)) {
       continue;
@@ -138,21 +143,18 @@ async function expandTwitterText(net: Net, tweet: Json, rootId: string): Promise
   }
 }
 
-function twitterTweets(tweet: Json, rootId: string): Array<{ id: string; tweet: Json }> {
+function twitterTweets(tweet: Json, rootId: string, includeParents = false): Array<{ id: string; tweet: Json }> {
   const tweets: Array<{ id: string; tweet: Json }> = [];
   const seen = new Set<string>();
-  let current: Json | null = tweet;
-  let fallbackId: string | null = rootId;
-  while (current) {
+  const visit = (current: Json, fallbackId?: string): void => {
     const id = string(current.id_str) ?? fallbackId;
-    if (!id || seen.has(id)) {
-      break;
-    }
-    tweets.push({ id, tweet: current });
+    if (!id || seen.has(id)) return;
     seen.add(id);
-    current = object(current.quoted_tweet) ? current.quoted_tweet : null;
-    fallbackId = null;
-  }
+    tweets.push({ id, tweet: current });
+    if (object(current.quoted_tweet)) visit(current.quoted_tweet);
+    if (includeParents && object(current.parent)) visit(current.parent);
+  };
+  visit(tweet, rootId);
   return tweets;
 }
 
