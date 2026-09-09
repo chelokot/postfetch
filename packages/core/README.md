@@ -25,15 +25,19 @@ set, and throws if the complete result cannot be produced. The legacy
 `(url, headers?, options?)` overload remains supported for non-remux downloads.
 
 `buildAudioSliderVideo(items, { delay: 3000 })` returns an MP4 `Blob` from one or
-more images/videos followed by exactly one audio item. `delay` is milliseconds
-per visual, rounded to 30 fps (minimum two frames), including a right-to-left
-transition lasting up to 300 ms or half the delay. The last visual stays visible;
-a single visual has no transition. Total duration is visual count × rounded
-delay. Videos loop or trim to fit and their own audio is discarded; the trailing
-audio loops and trims to the result. The default 720×1280 canvas preserves
+more images/videos followed by exactly one audio item. `delay` is the minimum
+milliseconds per visual. The actual slot is the larger of that minimum and
+audio duration / visual count, rounded up to 30 fps (minimum two frames), so
+the complete audio plays. Slots include a right-to-left transition lasting up
+to 300 ms or half the slot. The last visual stays visible;
+a single visual has no transition. Total duration is visual count × computed
+slot duration. Videos loop or trim to fit and their own audio is discarded; the trailing
+audio loops and trims only when the minimum makes the slideshow longer than the
+track. Otherwise it plays once, padding the rounding remainder with silence.
+The default 720×1280 canvas preserves
 aspect ratio with black padding. `AudioSliderVideoOptions` supports `width` and
-`height` (positive even integers), `fetch`, and `ffmpegPath`. Requires local
-FFmpeg with `libx264` and a runtime with filesystem/process access (Node, Bun,
+`height` (positive even integers), `fetch`, `ffmpegPath`, and `ffprobePath`. Requires
+local FFprobe, FFmpeg with `libx264` and a runtime with filesystem/process access (Node, Bun,
 Deno). Downloads retain item headers and assemble HLS; temporary files are
 cleaned up on success and failure.
 

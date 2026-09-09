@@ -91,20 +91,22 @@ form.append("video", blob, "slideshow.mp4");
 ```
 
 `buildAudioSliderVideo` requires one or more `image`/`video` items followed by
-exactly one `audio` item. `delay` is a positive number of milliseconds per visual,
-including a right-to-left transition over the last 300 ms (or half the delay,
-whichever is shorter). Timing rounds to 30 fps, with a minimum of two frames per
-visual; total duration is the visual count times that rounded delay. The last
+exactly one `audio` item. `delay` is the minimum milliseconds per visual. The
+actual slot is `max(delay / 1000, audio duration / visual count)` seconds, rounded
+up to 30 fps (minimum two frames), so the audio can finish. Each slot includes a
+right-to-left transition over the last 300 ms (or half the slot, whichever is
+shorter). Total duration is visual count × slot duration. The last
 visual stays on screen, and a single visual has no transition. Video clips loop
-or trim to fit; their original audio is discarded. The trailing audio loops and
-is trimmed to the slideshow duration.
+or trim to fit; their original audio is discarded. If the selected minimum makes
+the video longer than the audio, the track loops and is trimmed to fit. Otherwise
+it plays once, with silence filling any final partial-frame rounding remainder.
 
 The returned `video/mp4` Blob contains H.264 video and AAC audio. Visuals fit
 inside a 720×1280 canvas with black padding and preserved aspect ratio. Override
 `width` and `height` with positive even integers. `AudioSliderVideoOptions` also
-accepts `fetch` and `ffmpegPath`. Downloads preserve item headers and assemble
+accepts `fetch`, `ffmpegPath`, and `ffprobePath`. Downloads preserve item headers and assemble
 HLS/separate streams. This utility requires Node, Bun or Deno with filesystem
-and process access, plus FFmpeg with the `libx264` encoder; it does not run in
+and process access, plus FFprobe and FFmpeg with the `libx264` encoder; it does not run in
 browsers or edge workers. Temporary files are removed on success and failure.
 
 ## Run the server

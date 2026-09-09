@@ -55,7 +55,8 @@ describe.skipIf(!hasFfmpeg)("audio slider encoding (local FFmpeg)", () => {
     ffmpeg(["-f", "lavfi", "-i", "color=lime:s=120x160", "-frames:v", "1", `${directory}/green.png`]);
     ffmpeg(["-f", "lavfi", "-i", "color=blue:s=240x240:r=24:d=0.25", "-f", "lavfi", "-i", "sine=frequency=880:duration=0.25", "-c:v", "libx264", "-c:a", "aac", "-shortest", `${directory}/blue.mp4`]);
     ffmpeg(["-f", "lavfi", "-i", "sine=frequency=440:duration=0.2", `${directory}/sound.wav`]);
-    for (const name of ["red.png", "green.png", "blue.mp4", "sound.wav"]) {
+    ffmpeg(["-f", "lavfi", "-i", "sine=frequency=440:duration=2.45", `${directory}/long.wav`]);
+    for (const name of ["red.png", "green.png", "blue.mp4", "sound.wav", "long.wav"]) {
       media.set(name, new Uint8Array(await readFile(`${directory}/${name}`)));
     }
   });
@@ -120,16 +121,37 @@ describe.skipIf(!hasFfmpeg)("audio slider encoding (local FFmpeg)", () => {
     expect(pixel(frame(path, 0.8), 80)[0]).toBeGreaterThan(220);
   }, 15000);
 
-  test("rounds small and fractional delays to frames without losing visuals", async () => {
+  test("rounds minimum delays up to frames and fits the audio without losing visuals", async () => {
     for (const delay of [1, 250.5]) {
       const blob = await buildAudioSliderVideo([item("image", "red.png"), item("image", "green.png"), item("audio", "sound.wav")], { delay, width: 160, height: 160, fetch });
       const path = `${directory}/delay-${delay}.mp4`;
       await writeFile(path, new Uint8Array(await blob.arrayBuffer()));
       const metadata = probe(path);
-      const frames = Math.max(2, Math.round(delay * 30 / 1000));
+      const frames = Math.max(2, Math.ceil(delay * 30 / 1000), Math.ceil(0.2 * 30 / 2));
       expect(Number(metadata.streams[0].nb_frames)).toBe(frames * 2);
       expect(pixel(frame(path, 0), 80)[0]).toBeGreaterThan(220);
       expect(pixel(frame(path, (frames * 2 - 1) / 30), 80)[1]).toBeGreaterThan(220);
+    }
+  }, 15000);
+
+  test("extends slides for the whole track, including its final audio samples", async () => {
+    for (const visuals of [[item("image", "red.png")], [item("image", "red.png"), item("image", "green.png")]]) {
+      const blob = await buildAudioSliderVideo([...visuals, item("audio", "long.wav")], { delay: 100, width: 160, height: 160, fetch });
+      const path = `${directory}/long-${visuals.length}.mp4`;
+      await writeFile(path, new Uint8Array(await blob.arrayBuffer()));
+      const metadata = probe(path);
+      const duration = Number(metadata.streams[0].duration);
+      expect(duration).toBeGreaterThanOrEqual(2.45);
+      expect(duration).toBeLessThan(2.45 + visuals.length / 30 + 0.001);
+      expect(Number(metadata.streams[1].duration)).toBeGreaterThanOrEqual(2.45);
+      if (visuals.length === 2) {
+        expect(pixel(frame(path, 0.8), 80)[0]).toBeGreaterThan(220);
+        expect(pixel(frame(path, 2.3), 80)[1]).toBeGreaterThan(220);
+      }
+      const pcm = ffmpeg(["-ss", "2.35", "-i", path, "-t", "0.08", "-vn", "-ac", "1", "-ar", "8000", "-f", "f32le", "pipe:1"]);
+      let energy = 0;
+      for (let offset = 0; offset < pcm.length; offset += 4) energy += pcm.readFloatLE(offset) ** 2;
+      expect(energy / (pcm.length / 4)).toBeGreaterThan(0.001);
     }
   }, 15000);
 
@@ -137,8 +159,11 @@ describe.skipIf(!hasFfmpeg)("audio slider encoding (local FFmpeg)", () => {
     const before = new Set(await readdir(tmpdir()));
     const items = [item("image", "red.png"), item("audio", "sound.wav")];
     await expect(buildAudioSliderVideo(items, { delay: 1000, fetch, ffmpegPath: "postfetch-missing-ffmpeg-test" })).rejects.toThrow("Audio slider video encoding failed");
+    await expect(buildAudioSliderVideo(items, { delay: 1000, fetch, ffprobePath: "postfetch-missing-ffprobe-test" })).rejects.toThrow("Audio slider duration probe failed");
     await expect(buildAudioSliderVideo([item("image", "missing"), items[1]], { delay: 1000, fetch })).rejects.toThrow("404");
     media.set("corrupt", new TextEncoder().encode("broken media"));
+    await expect(buildAudioSliderVideo([items[0], item("audio", "corrupt")], { delay: 1000, fetch })).rejects.toThrow("Audio slider duration probe failed");
+    await expect(buildAudioSliderVideo([items[0], item("audio", "red.png")], { delay: 1000, fetch })).rejects.toThrow("Audio slider audio duration is unavailable");
     await expect(buildAudioSliderVideo([item("video", "corrupt"), items[1]], { delay: 1000, fetch })).rejects.toThrow("Audio slider video encoding failed");
     const leaked = (await readdir(tmpdir())).filter((name) => name.startsWith("postfetch-slider-") && !before.has(name));
     expect(leaked).toEqual([]);
