@@ -203,3 +203,26 @@ test("X reply identity is retained even without the parent payload", () => {
   expect(twitterMetadata({ text: "Reply", parent: { id_str: "456", text: "Parent" } }).extra?.replyToId).toBe("456");
   expect(twitterMetadata({ text: "Post" }).extra?.replyToId).toBeUndefined();
 });
+
+describe("twitter display text", () => {
+  test("preserves genuine trailing links and removes only identified trailing attachments", () => {
+    const link = "https://t.co/source";
+    const attachment = "https://t.co/media";
+    const media = { url: attachment };
+    expect(twitterMetadata({ text: `source code: ${link}`, entities: { urls: [{ url: link }] } }).text).toBe(`source code: ${link}`);
+    expect(twitterMetadata({ text: `source code: ${link}\n${attachment}`, entities: { media: [media] } }).text).toBe(`source code: ${link}`);
+    expect(twitterMetadata({ text: `watch ${attachment}`, mediaDetails: [media] }).text).toBe("watch");
+    expect(twitterMetadata({ text: `${attachment} in the middle`, entities: { media: [media] } }).text).toBe(`${attachment} in the middle`);
+    expect(twitterMetadata({ text: `watch${attachment}`, mediaDetails: [media] }).text).toBe(`watch${attachment}`);
+    expect(twitterMetadata({ text: `watch ${attachment} https://t.co/second \n`, entities: { media: [media, { url: "https://t.co/second" }] } }).text).toBe("watch");
+    expect(twitterMetadata({ text: attachment, entities: { media: [media] } }).text).toBe("");
+  });
+
+  test("cleans complete text, quotes and parents and decodes angle brackets", () => {
+    const tweet = { id_str: "2", text: "preview", full_text: "a &lt; b &gt; c https://t.co/media", entities: { media: [{ url: "https://t.co/media" }] } };
+    const metadata = twitterMetadata({ text: "&lt;root&gt;", quoted_tweet: tweet, parent: { ...tweet, full_text: undefined, note_tweet: { text: tweet.full_text } } });
+    expect(metadata.text).toBe("<root>");
+    expect(metadata.extra?.quotedTweet?.metadata.text).toBe("a < b > c");
+    expect(metadata.extra?.parentTweet?.metadata.text).toBe("a < b > c");
+  });
+});

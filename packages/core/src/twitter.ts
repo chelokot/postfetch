@@ -67,7 +67,7 @@ export function twitterMetadata(tweet: Json): PostMetadata & { extra?: TwitterEx
     extra.parentTweet = { id: parentId, metadata: twitterMetadata(parent) };
   }
   return {
-    text: twitterText(tweet) ?? undefined,
+    text: cleanTwitterText(twitterText(tweet), tweet) ?? undefined,
     author: user
       ? {
           handle: string(user.screen_name) ?? undefined,
@@ -94,6 +94,24 @@ function noteText(tweet: Json): string | null {
 
 function twitterText(tweet: Json): string | null {
   return noteText(tweet) ?? string(tweet.full_text) ?? string(tweet.text);
+}
+
+// X serializes attachments as URLs in text. Only remove a trailing URL when
+// the same post explicitly identifies it as media; ordinary links stay intact.
+function cleanTwitterText(text: string | null, tweet: Json): string | null {
+  if (text === null) return null;
+  const entities = object(tweet.entities) ? tweet.entities : null;
+  const media = [
+    ...(entities && Array.isArray(entities.media) ? entities.media : []),
+    ...(Array.isArray(tweet.mediaDetails) ? tweet.mediaDetails : []),
+  ];
+  const urls = new Set(media.filter(object).map((entry) => string(entry.url)).filter(Boolean));
+  while (true) {
+    const trailing: RegExpMatchArray | null = text.match(/(?:^|\s)(https?:\/\/\S+)\s*$/);
+    if (!trailing || !urls.has(trailing[1])) break;
+    text = text.slice(0, trailing.index).trimEnd();
+  }
+  return text.replace(/&(?:gt|lt);/g, (entity) => entity === "&gt;" ? ">" : "<");
 }
 
 function needsFullText(tweet: Json): boolean {
@@ -350,7 +368,7 @@ function twitterComment(reply: Json, id: string): PostComment {
     url: `https://x.com/i/status/${id}`,
     items,
     metadata: {
-      text: string(reply.text) ?? undefined,
+      text: cleanTwitterText(string(reply.text), reply) ?? undefined,
       author: {
         handle: string(author.screen_name) ?? undefined,
         name: string(author.name) ?? undefined,
