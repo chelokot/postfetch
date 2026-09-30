@@ -26,14 +26,61 @@ describe("instagram unavailable reason", () => {
   test("falls back to unavailable when the post is reachable or the cause is unknown", () => {
     expect(instagramUnavailableReason(200, "{}")).toBe("unavailable");
     expect(instagramUnavailableReason(400, "{}")).toBe("unavailable");
+    expect(instagramUnavailableReason(400, JSON.stringify({ message: "geoblock_required" }))).toBe("unavailable");
   });
 });
 
 describe("instagram media fallbacks", () => {
+  test.each([
+    ["the requested post's age gate", "Dd6GlX7MYad", "Age-restricted content", "ageRestricted", 451],
+    ["another post's age gate", "OTHER", "Age-restricted content", "unavailable", 404],
+    ["an unspecified audience gate", "Dd6GlX7MYad", "This content isn't available to everyone", "unavailable", 404],
+  ] as const)("classifies %s when oembed has no age marker", async (_label, gatedCode, title, reason, status) => {
+    const code = "Dd6GlX7MYad";
+    const page = `<script type="application/json">${JSON.stringify({
+      data: {
+        media: {
+          __typename: "XIGPolarisVideoMedia",
+          code: gatedCode,
+          if_not_gated_logged_out: null,
+          gating_ruling: { gating_type: 3, title },
+        },
+      },
+    })}</script>`;
+    const injectedFetch = (async (input: string | URL | Request) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      if (url === `https://www.instagram.com/p/${code}/`) {
+        return new Response(page);
+      }
+      if (url.startsWith("https://i.instagram.com/api/v1/oembed/")) {
+        return Response.json({
+          message: "geoblock_required",
+          gating_type: "unappealable",
+          title: "This content isn't available to everyone",
+          description: "It can't be seen by certain audiences.",
+          blocks_logging_data: "",
+          status: "fail",
+        }, { status: 400 });
+      }
+      if (url === "https://www.instagram.com/graphql/query") {
+        return Response.json({ data: null });
+      }
+      return new Response("", { status: 404 });
+    }) as typeof fetch;
+
+    await expect(postfetch(`https://www.instagram.com/reel/${code}/`, { fetch: injectedFetch }))
+      .rejects.toMatchObject({ name: "PostfetchError", reason, status });
+  });
+
   test("does not return a reel cover when the current GraphQL query has the video", async () => {
     const code = "REEL1";
     const cover = `<script type="application/json">${JSON.stringify({
-      media: { code, media_type: 2, image_versions2: { candidates: [{ url: "https://cdn.test/cover.jpg" }] } },
+      media: {
+        code,
+        media_type: 2,
+        gating_ruling: { title: "Age-restricted content" },
+        image_versions2: { candidates: [{ url: "https://cdn.test/cover.jpg" }] },
+      },
     })}</script>`;
     const requests: Array<{ body: string; url: string }> = [];
     const injectedFetch = (async (input: string | URL | Request, init?: RequestInit) => {

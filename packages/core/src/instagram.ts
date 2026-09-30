@@ -59,8 +59,9 @@ function embedHeaders(): Record<string, string> {
 export async function resolveInstagram(input: ResolveContext): Promise<PostfetchResult> {
   const code = shortcode(input.url);
   const videoRequired = /\/(?:reel|reels|tv)\//.test(asUrl(input.url).pathname);
+  const page = await pageMedia(input.net, code, input.preferredWidth);
   const resolvers: Array<() => Promise<Json | null>> = [
-    () => pageMedia(input.net, code, input.preferredWidth),
+    async () => page.media,
     () => mobileMedia(input.net, code, input.preferredWidth),
     () => embedMedia(input.net, code),
     () => graphqlMedia(input.net, code),
@@ -74,7 +75,7 @@ export async function resolveInstagram(input: ResolveContext): Promise<Postfetch
     }
   }
   if (!media) {
-    throw await instagramUnavailable(input.net, code);
+    throw await instagramUnavailable(input.net, code, page.reason);
   }
   const items = mediaItems(media, code, input.preferredWidth);
   if (items.length === 0) {
@@ -83,12 +84,14 @@ export async function resolveInstagram(input: ResolveContext): Promise<Postfetch
   return { archiveFilename: filename(`instagram_${code}.zip`), comments: [], id: code, items, metadata: instagramMetadata(media), platform: "instagram" };
 }
 
-async function instagramUnavailable(net: Net, code: string): Promise<PostfetchError> {
+async function instagramUnavailable(net: Net, code: string, pageReason?: PostfetchReason): Promise<PostfetchError> {
   const url = new URL("https://i.instagram.com/api/v1/oembed/");
   url.searchParams.set("url", `https://www.instagram.com/p/${code}/`);
   const response = await net(url.href, { headers: mobileHeaders() }, 1).catch(() => null);
   const body = response ? await response.text().catch(() => "") : "";
-  const reason = instagramUnavailableReason(response?.status ?? 0, body);
+  // The page can identify an age gate even when oembed only reports a generic
+  // geoblock_required error with no MIN_AGE_ACCOUNT marker.
+  const reason = pageReason ?? instagramUnavailableReason(response?.status ?? 0, body);
   // Carry the oembed status so an unclassified failure still leaves a raw clue
   // (200 = post is public but no media could be parsed; 429 = throttled; …).
   const probe = response ? `oembed ${response.status}` : "oembed unreachable";
@@ -109,7 +112,7 @@ export function instagramUnavailableReason(status: number, body: string): Postfe
   if (status !== 0 && status < 400) {
     return "unavailable";
   }
-  if (/MIN_AGE_ACCOUNT|under 18/i.test(body)) {
+  if (/MIN_AGE_ACCOUNT|under 18|age[- ]restricted/i.test(body)) {
     return "ageRestricted";
   }
   if (/private account|"is_private":\s*true|account is private/i.test(body)) {
@@ -190,14 +193,20 @@ function shortcode(input: string): string {
   return code;
 }
 
-async function pageMedia(net: Net, code: string, preferredWidth: number): Promise<Json | null> {
+async function pageMedia(net: Net, code: string, preferredWidth: number): Promise<{ media: Json | null; reason?: PostfetchReason }> {
   const response = await net(`https://www.instagram.com/p/${code}/`, { headers: navigationHeaders() });
   if (!response.ok) {
-    return null;
+    return { media: null };
   }
   const html = await response.text();
   const media = inlineMedia(html, code);
-  return media && mediaItems(media, code, preferredWidth).length > 0 ? media : null;
+  const reason = media && object(media.gating_ruling)
+    ? instagramUnavailableReason(400, JSON.stringify(media.gating_ruling))
+    : "unavailable";
+  return {
+    media: media && mediaItems(media, code, preferredWidth).length > 0 ? media : null,
+    reason: reason === "unavailable" ? undefined : reason,
+  };
 }
 
 function inlineMedia(html: string, code: string): Json | null {
@@ -233,7 +242,7 @@ function searchMedia(node: unknown, code: string): Json | null {
     Array.isArray(node.video_versions) ||
     Array.isArray(node.carousel_media) ||
     (object(node.image_versions2) && Array.isArray(node.image_versions2.candidates));
-  if (hasMedia && node.code === code) {
+  if ((hasMedia || object(node.gating_ruling)) && node.code === code) {
     return node;
   }
   for (const key in node) {
