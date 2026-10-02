@@ -275,6 +275,45 @@ describe("live network", () => {
   );
 
   test.skipIf(!runs("youtube"))(
+    "reported multilingual YouTube video selects its original English audio",
+    async () => {
+      const originalAudioUrls = new Set<string>();
+      const result = await postfetch("https://www.youtube.com/watch?v=Yj9EHWVZAIA", {
+        fetch: (async (input, init) => {
+          const response = await fetch(input, init);
+          const url = String(input);
+          if (url.includes("/youtubei/v1/player")) {
+            const payload = await response.clone().json();
+            for (const format of payload.streamingData?.adaptiveFormats ?? []) {
+              if (/\boriginal\b/i.test(format.audioTrack?.displayName ?? "") && format.url) {
+                expect(format.audioTrack.id).toStartWith("en");
+                originalAudioUrls.add(format.url);
+              }
+            }
+          } else if (url.includes("/api/manifest/hls")) {
+            const text = await response.clone().text();
+            for (const line of text.split("\n")) {
+              if (line.startsWith("#EXT-X-MEDIA:") && /NAME="[^"]*\boriginal\b/i.test(line)) {
+                expect(line).toContain('LANGUAGE="en-US"');
+                const uri = line.match(/URI="([^"]+)"/)?.[1];
+                if (uri) originalAudioUrls.add(new URL(uri, url).href);
+              }
+            }
+          }
+          return response;
+        }) as typeof fetch,
+      });
+      const audio = result.items[0]?.audio;
+      expect(audio).toBeDefined();
+      expect(originalAudioUrls.has(audio!.url)).toBe(true);
+      const response = await fetch(audio!.url, { headers: audio!.headers });
+      await response.body?.cancel();
+      expect(response.ok).toBe(true);
+    },
+    60_000,
+  );
+
+  test.skipIf(!runs("youtube"))(
     "reported YouTube short downloads with both video and audio tracks",
     async () => {
       const result = await postfetch("https://www.youtube.com/shorts/7KZQlvBXphg");

@@ -39,6 +39,7 @@ function youtubeFetch(options: {
   missingManifest?: boolean;
   manifest?: string;
   playlist?: string;
+  audioFormats?: Record<string, unknown>[];
 } = {}) {
   const clients: string[] = [];
   const probes: string[] = [];
@@ -57,7 +58,7 @@ function youtubeFetch(options: {
           playabilityStatus: { status: options.androidUnavailable ? "ERROR" : "OK", reason: "Android unavailable" },
           streamingData: { adaptiveFormats: [
             { url: "https://cdn.test/direct-video.mp4", mimeType: 'video/mp4; codecs="avc1.4d401f"', width: 720 },
-            { url: "https://cdn.test/direct-audio.m4a", mimeType: 'audio/mp4; codecs="mp4a.40.2"', bitrate: 128000 },
+            ...(options.audioFormats ?? [{ url: "https://cdn.test/direct-audio.m4a", mimeType: 'audio/mp4; codecs="mp4a.40.2"', bitrate: 128000 }]),
           ] },
           videoDetails: { title: "Direct clip" },
         });
@@ -100,6 +101,70 @@ describe("YouTube client fallback", () => {
     expect(result.items[0].hls).toBeUndefined();
     expect(stub.clients).toEqual(["ANDROID_VR"]);
     expect(stub.probes).toHaveLength(2);
+  });
+
+  for (const originalFirst of [false, true]) {
+    test(`prefers original direct audio over a higher bitrate default dub (original first: ${originalFirst})`, async () => {
+      const original = {
+        url: "https://cdn.test/direct-original-audio.m4a", mimeType: "audio/mp4", bitrate: 128000,
+        audioTrack: { id: "en-US.4", displayName: "English (US) original", audioIsDefault: false },
+      };
+      const dub = {
+        url: "https://cdn.test/direct-dub-audio.m4a", mimeType: "audio/mp4", bitrate: 192000,
+        audioTrack: { id: "de-DE.10", displayName: "German (DE)", audioIsDefault: true },
+      };
+      const lowQualityOriginal = { ...original, url: "https://cdn.test/direct-low-audio.m4a", bitrate: 48000 };
+      const audioFormats = originalFirst ? [lowQualityOriginal, original, dub] : [dub, lowQualityOriginal, original];
+      const stub = youtubeFetch({ audioFormats });
+      const result = await postfetch(url, stub);
+      expect(result.items[0].audio?.url).toBe(original.url);
+      expect(stub.probes).toContain(original.url);
+      expect(stub.probes).not.toContain(dub.url);
+    });
+  }
+
+  test("prefers a non-English original over an English dub", async () => {
+    const result = await postfetch(url, youtubeFetch({ audioFormats: [
+      { url: "https://cdn.test/direct-english-audio.m4a", mimeType: "audio/mp4", bitrate: 192000,
+        audioTrack: { displayName: "English", audioIsDefault: true } },
+      { url: "https://cdn.test/direct-french-audio.m4a", mimeType: "audio/mp4", bitrate: 128000,
+        audioTrack: { displayName: "French (original)", audioIsDefault: false } },
+    ] }));
+    expect(result.items[0].audio?.url).toBe("https://cdn.test/direct-french-audio.m4a");
+  });
+
+  test("uses default direct audio when the original is not identified", async () => {
+    const result = await postfetch(url, youtubeFetch({ audioFormats: [
+      { url: "https://cdn.test/direct-dub-audio.m4a", mimeType: "audio/mp4", bitrate: 192000,
+        audioTrack: { displayName: "German", audioIsDefault: false } },
+      { url: "https://cdn.test/direct-default-audio.m4a", mimeType: "audio/mp4", bitrate: 128000,
+        audioTrack: { displayName: "English", audioIsDefault: true } },
+    ] }));
+    expect(result.items[0].audio?.url).toBe("https://cdn.test/direct-default-audio.m4a");
+  });
+
+  test("keeps bitrate selection for direct audio without track metadata", async () => {
+    const result = await postfetch(url, youtubeFetch({ audioFormats: [
+      { url: "https://cdn.test/direct-low-audio.m4a", mimeType: "audio/mp4", bitrate: 48000 },
+      { url: "https://cdn.test/direct-high-audio.m4a", mimeType: "audio/mp4", bitrate: 128000 },
+    ] }));
+    expect(result.items[0].audio?.url).toBe("https://cdn.test/direct-high-audio.m4a");
+  });
+
+  test("prefers original HLS audio when all tracks are non-default, as in Yj9EHWVZAIA", async () => {
+    const reportedManifest = manifest
+      .replaceAll('NAME="Original",DEFAULT=YES', 'NAME="American English - original",DEFAULT=NO')
+      .replace('#EXTM3U', '#EXTM3U\n#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="aac",NAME="Deutsch (Deutschland) - dubbed-auto",DEFAULT=NO,URI="german.m3u8"');
+    const result = await postfetch(url, youtubeFetch({ videoStatus: 403, manifest: reportedManifest }));
+    expect(result.items[0].audio?.url).toBe("https://cdn.test/audio.m3u8");
+  });
+
+  test("prefers original HLS audio over the default dub", async () => {
+    const dubbedManifest = manifest
+      .replaceAll('NAME="Original",DEFAULT=YES', 'NAME="French - original",DEFAULT=NO')
+      .replaceAll('NAME="Dub",DEFAULT=NO', 'NAME="English - dubbed",DEFAULT=YES');
+    const result = await postfetch(url, youtubeFetch({ videoStatus: 403, manifest: dubbedManifest }));
+    expect(result.items[0].audio?.url).toBe("https://cdn.test/audio.m3u8");
   });
 
   for (const track of ["video", "audio"] as const) {

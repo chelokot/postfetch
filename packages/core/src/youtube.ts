@@ -139,7 +139,7 @@ async function resolveVisionOs(input: ResolveContext, id: string, visitorData?: 
   if (!response.ok) {
     throw new Error(`YouTube HLS manifest failed: ${response.status}`);
   }
-  const master = parseMaster(await response.text(), manifestUrl);
+  const master = parseMaster(await response.text(), manifestUrl, { preferOriginalAudio: true });
   // YouTube's AVC HLS variants use MPEG-TS. VP9/AV1 variants use fMP4 and
   // work with the bundled box-level merger. Require the paired AAC-LC track.
   const variants = master.variants.filter((variant) =>
@@ -230,9 +230,23 @@ function bestAudio(formats: Json[]): string | null {
     if (!current) {
       return format;
     }
+    // YouTube's default can be a dub, and bitrate varies between languages.
+    // Select the original track before comparing audio quality.
+    const preference = audioPreference(format) - audioPreference(current);
+    if (preference !== 0) {
+      return preference > 0 ? format : current;
+    }
     return (number(format.bitrate) ?? 0) > (number(current.bitrate) ?? 0) ? format : current;
   }, null);
   return best ? string(best.url) : null;
+}
+
+function audioPreference(format: Json): number {
+  const track = object(format.audioTrack) ? format.audioTrack : null;
+  if (track && /\boriginal\b/i.test(string(track.displayName) ?? "")) {
+    return 2;
+  }
+  return track?.audioIsDefault === true ? 1 : 0;
 }
 
 function playerBody(id: string, session: YoutubeSession): Json {

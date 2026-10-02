@@ -23,6 +23,25 @@ function stubFetch(routes: Record<string, Uint8Array | string>): typeof fetch {
 }
 
 describe("parseMaster", () => {
+  test("keeps default selection unless original audio is requested, independently per group", () => {
+    const text = [
+      "#EXTM3U",
+      '#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="a",NAME="German",DEFAULT=YES,URI="german.m3u8"',
+      '#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="a",NAME="English - original",DEFAULT=NO,URI="english.m3u8"',
+      '#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="b",NAME="French - original",DEFAULT=NO,URI="french.m3u8"',
+      '#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="b",NAME="English",DEFAULT=YES,URI="dub.m3u8"',
+      '#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="c",NAME="First",DEFAULT=NO,URI="first.m3u8"',
+      '#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="c",NAME="Default",DEFAULT=YES,URI="default.m3u8"',
+    ].join("\n");
+    const base = "https://cdn.test/master.m3u8";
+    expect(parseMaster(text, base).audio).toEqual({
+      a: "https://cdn.test/german.m3u8", b: "https://cdn.test/dub.m3u8", c: "https://cdn.test/default.m3u8",
+    });
+    expect(parseMaster(text, base, { preferOriginalAudio: true }).audio).toEqual({
+      a: "https://cdn.test/english.m3u8", b: "https://cdn.test/french.m3u8", c: "https://cdn.test/default.m3u8",
+    });
+  });
+
   test("reads variants and the audio group", () => {
     const text = [
       "#EXTM3U",

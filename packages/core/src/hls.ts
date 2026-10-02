@@ -16,10 +16,10 @@ export function isMasterPlaylist(text: string): boolean {
   return text.includes("#EXT-X-STREAM-INF");
 }
 
-export function parseMaster(text: string, baseUrl: string): HlsMaster {
+export function parseMaster(text: string, baseUrl: string, options: { preferOriginalAudio?: boolean } = {}): HlsMaster {
   const lines = text.split("\n").map((line) => line.trim());
   const audio: Record<string, string> = {};
-  const defaultAudio = new Set<string>();
+  const audioPreference: Record<string, number> = {};
   const variants: HlsVariant[] = [];
   for (let index = 0; index < lines.length; index += 1) {
     const line = lines[index];
@@ -27,9 +27,12 @@ export function parseMaster(text: string, baseUrl: string): HlsMaster {
       const group = line.match(/GROUP-ID="([^"]+)"/)?.[1];
       const uri = line.match(/URI="([^"]+)"/)?.[1];
       const isDefault = /(?:^|,)DEFAULT=YES(?:,|$)/.test(line);
-      if (group && uri && (!audio[group] || (isDefault && !defaultAudio.has(group)))) {
+      const name = line.match(/(?:^|,)NAME="([^"]+)"/)?.[1] ?? "";
+      const isOriginal = options.preferOriginalAudio && /\boriginal\b/i.test(name);
+      const preference = isOriginal ? 2 : isDefault ? 1 : 0;
+      if (group && uri && (!audio[group] || preference > audioPreference[group])) {
         audio[group] = new URL(uri, baseUrl).href;
-        if (isDefault) defaultAudio.add(group);
+        audioPreference[group] = preference;
       }
     } else if (line.startsWith("#EXT-X-STREAM-INF:")) {
       const target = lines[index + 1];
