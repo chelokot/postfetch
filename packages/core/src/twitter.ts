@@ -111,7 +111,7 @@ function cleanTwitterText(text: string | null, tweet: Json): string | null {
     if (!trailing || !urls.has(trailing[1])) break;
     text = text.slice(0, trailing.index).trimEnd();
   }
-  return text.replace(/&(?:gt|lt);/g, (entity) => entity === "&gt;" ? ">" : "<");
+  return text.replace(/&(?:amp|gt|lt);/g, (entity) => entity === "&amp;" ? "&" : entity === "&gt;" ? ">" : "<");
 }
 
 function needsFullText(tweet: Json): boolean {

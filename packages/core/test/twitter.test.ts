@@ -218,11 +218,11 @@ describe("twitter display text", () => {
     expect(twitterMetadata({ text: attachment, entities: { media: [media] } }).text).toBe("");
   });
 
-  test("cleans complete text, quotes and parents and decodes angle brackets", () => {
-    const tweet = { id_str: "2", text: "preview", full_text: "a &lt; b &gt; c https://t.co/media", entities: { media: [{ url: "https://t.co/media" }] } };
-    const metadata = twitterMetadata({ text: "&lt;root&gt;", quoted_tweet: tweet, parent: { ...tweet, full_text: undefined, note_tweet: { text: tweet.full_text } } });
-    expect(metadata.text).toBe("<root>");
-    expect(metadata.extra?.quotedTweet?.metadata.text).toBe("a < b > c");
-    expect(metadata.extra?.parentTweet?.metadata.text).toBe("a < b > c");
+  test("cleans complete text, quotes and parents and decodes ampersands and angle brackets", () => {
+    const tweet = { id_str: "2", text: "preview", full_text: "a &lt; b &gt; c &amp; d https://t.co/media", entities: { media: [{ url: "https://t.co/media" }] } };
+    const metadata = twitterMetadata({ text: "&lt;root&gt; &amp; &amp;lt;", quoted_tweet: tweet, parent: { ...tweet, full_text: undefined, note_tweet: { text: tweet.full_text } } });
+    expect(metadata.text).toBe("<root> & &lt;");
+    expect(metadata.extra?.quotedTweet?.metadata.text).toBe("a < b > c & d");
+    expect(metadata.extra?.parentTweet?.metadata.text).toBe("a < b > c & d");
   });
 });
