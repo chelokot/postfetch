@@ -1,6 +1,74 @@
 import { describe, expect, test } from "bun:test";
 import { tweetId, twitterMetadata } from "../src/twitter";
-import { postfetch } from "../src/index";
+import { downloadBlob, postfetch } from "../src/index";
+
+describe("twitter website preview images", () => {
+  const id = "2109709413032546346";
+  const original = "https://pbs.twimg.com/card_img/2109709414550917120/0W7U_kFN?format=jpg&name=orig";
+  const image = (url: string, width = 800, height = 419) => ({ type: "IMAGE", image_value: { url, width, height } });
+  const card = (binding_values: Record<string, unknown>) => ({ name: "summary_large_image", binding_values });
+  async function resolve(tweet: Record<string, unknown>, tryMaxBytes?: number) {
+    return postfetch(`https://x.com/morganlinton/status/${id}`, {
+      tryMaxBytes,
+      fetch: (async (_input, init) => init?.method === "HEAD"
+        ? new Response(null, { headers: { "content-length": "4" } })
+        : Response.json({ id_str: id, text: "Read https://t.co/site", ...tweet })) as typeof fetch,
+    });
+  }
+
+  test("downloads one original preview from the reported card, preserving its query and link text", async () => {
+    const result = await resolve({ card: card({
+      photo_image_full_size_large: image(original.replace("orig", "800x419")),
+      thumbnail_image_original: image(original, 2400, 2340),
+      photo_image_full_size_original: image(original, 2400, 2340),
+      photo_image_full_size_x_large: image(original.replace("jpg", "png"), 2048, 1997),
+    }) }, 50_000_000);
+    expect(result.items).toHaveLength(1);
+    expect(result.items[0]).toMatchObject({
+      id, kind: "image", role: "linkPreview", mime: "image/jpeg",
+      filename: `twitter_${id}_preview.jpg`, url: original,
+    });
+    expect(result.metadata?.text).toBe("Read https://t.co/site");
+    const bytes = Uint8Array.of(255, 216, 255, 217);
+    const blob = await downloadBlob(result.items[0], { fetch: (async (url) => {
+      expect(String(url)).toBe(original);
+      return new Response(bytes, { headers: { "content-type": "image/jpeg" } });
+    }) as typeof fetch });
+    expect(new Uint8Array(await blob.arrayBuffer())).toEqual(bytes);
+  });
+
+  test("keeps attachments and quoted previews in display order and excludes parent previews", async () => {
+    const photo = { type: "photo", media_url_https: "https://pbs.twimg.com/attachment.jpg" };
+    const result = await resolve({
+      mediaDetails: [photo], card: card({ summary_photo_image_original: image(original) }),
+      quoted_tweet: { id_str: "90", text: "Quote", mediaDetails: [photo], card: card({ thumbnail_image: image(original) }) },
+      parent: { id_str: "80", text: "Parent", card: card({ thumbnail_image: image(original) }) },
+    });
+    expect(result.items.map(({ id, role }) => [id, role])).toEqual([
+      [id, undefined], ["90", undefined], ["90", "linkPreview"], [id, "linkPreview"],
+    ]);
+  });
+
+  test("falls back to the largest valid rendition and preserves its format", async () => {
+    const url = "https://pbs.twimg.com/card_img/test?format=png&name=large";
+    const result = await resolve({ card: { ...card({
+      photo_image_full_size_original: image("javascript:invalid"),
+      thumbnail_image: image("https://pbs.twimg.com/small.jpg", 100, 100),
+      summary_photo_image_large: image(url, 1200, 800),
+      site_icon: image("https://pbs.twimg.com/icon.jpg", 2000, 2000),
+    }), name: "summary" } });
+    expect(result.items[0]).toMatchObject({ url, mime: "image/png", filename: `twitter_${id}_preview.png` });
+  });
+
+  test.each([
+    null, {}, { name: "player", binding_values: { thumbnail_image: image(original) } },
+    card({ site_icon: image(original) }), card({ thumbnail_image: null }),
+    card({ thumbnail_image: image("not a URL") }), card({ thumbnail_image: image("file:///tmp/photo.jpg") }),
+  ])("ignores missing, unsupported or malformed cards: %j", async (card) => {
+    const result = await resolve({ card });
+    expect(result.items).toEqual([]);
+  });
+});
 
 describe("twitter url parsing", () => {
   test("extracts the status id across handle, i/, suffix and query formats", () => {

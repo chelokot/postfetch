@@ -33,13 +33,20 @@ export async function resolveTwitter(input: ResolveContext): Promise<PostfetchRe
     throw new Error("Tweet is unavailable or age-restricted");
   }
   await expandTwitterText(input.net, tweet, id);
-  const groups = twitterTweets(tweet, id).flatMap(({ id: postId, tweet: post }) => {
+  const posts = twitterTweets(tweet, id);
+  const groups = posts.flatMap(({ id: postId, tweet: post }) => {
     const media = Array.isArray(post.mediaDetails) ? post.mediaDetails.filter(object) : [];
     return media.flatMap((entry, index) => {
       const candidates = twitterCandidates(entry, postId, index + 1);
       return candidates.length > 0 ? [candidates] : [];
     });
   });
+  // Quotes nest inside their containing post, so append each card as we unwind
+  // the quote chain. Download order then matches the displayed post order.
+  for (const { id: postId, tweet: post } of posts.toReversed()) {
+    const card = twitterCardImage(post, postId);
+    if (card) groups.push([{ bitrate: 0, item: card }]);
+  }
   const items = input.tryMaxBytes === undefined ? groups.map((group) => group[0].item) : await sizeLimitedItems(input, groups);
   // A text-only tweet is a valid result with metadata and no media. Syndication
   // has already failed or returned a tombstone when the tweet is unavailable,
@@ -211,6 +218,41 @@ function twitterCandidates(entry: Json, id: string, index: number): TwitterCandi
   return photo
     ? [{ bitrate: 0, item: { filename: filename(`twitter_${id}_${index}.jpg`), headers, id, kind: "image", mime: "image/jpeg", platform: "twitter", url: `${photo}?name=orig` } }]
     : [];
+}
+
+function twitterCardImage(tweet: Json, id: string): MediaItem | null {
+  const card = object(tweet.card) ? tweet.card : null;
+  if (!card || (card.name !== "summary" && card.name !== "summary_large_image")) return null;
+  const bindings = object(card.binding_values) ? card.binding_values : {};
+  const images = Object.entries(bindings).flatMap(([key, value]) => {
+    // Select a single preview, excluding site icons and unrelated card assets.
+    if (!/^(photo_image_full_size|summary_photo_image|thumbnail_image)(_(original|x_large|large|small))?$/.test(key)
+      || !object(value) || !object(value.image_value)) return [];
+    const image = value.image_value;
+    const rawUrl = string(image.url);
+    if (!rawUrl) return [];
+    try {
+      const url = new URL(rawUrl);
+      if (url.protocol !== "https:" && url.protocol !== "http:") return [];
+      const format = (url.searchParams.get("format") ?? url.pathname.match(/\.(jpe?g|png|webp|gif)$/i)?.[1] ?? "jpg").toLowerCase();
+      const extension = format === "jpeg" ? "jpg" : format;
+      if (!["jpg", "png", "webp", "gif"].includes(extension)) return [];
+      return [{
+        url: url.href, extension,
+        original: key.endsWith("_original") ? 1 : 0,
+        area: Math.max(0, number(image.width) ?? 0) * Math.max(0, number(image.height) ?? 0),
+      }];
+    } catch {
+      return [];
+    }
+  }).sort((a, b) => b.original - a.original || b.area - a.area);
+  const image = images[0];
+  return image ? {
+    filename: filename(`twitter_${id}_preview.${image.extension}`),
+    headers: { "user-agent": browserUserAgent() },
+    id, kind: "image", mime: `image/${image.extension === "jpg" ? "jpeg" : image.extension}`,
+    platform: "twitter", role: "linkPreview", url: image.url,
+  } : null;
 }
 
 function videoVariants(entry: Json): Array<{ bitrate: number; url: string }> {

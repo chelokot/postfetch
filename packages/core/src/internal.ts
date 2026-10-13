@@ -32,6 +32,8 @@ export type MediaItem = {
   mime: string;
   /** The platform this item came from. */
   platform: Platform;
+  /** Website preview image, displayed below the post's content rather than in its attachment gallery. */
+  role?: "linkPreview";
   /** Direct CDN URL of the media. */
   url: string;
 };
