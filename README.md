@@ -72,6 +72,11 @@ form.append("thumbnail", video.thumbnail, "thumbnail.jpg");
 Pass the full media item to include separate audio and assemble HLS playlists.
 Passing only `media.url` downloads that URL alone, which may contain video without audio.
 
+Buffered downloads (`downloadBlob`, archives, separate streams, and HLS) retry
+interrupted response bodies up to three total attempts, with 500 ms and 1 s
+backoff. Each retry restarts only the failed stream or segment and discards its
+partial bytes. Plain `download` responses remain streamed to the caller.
+
 `remux` defaults to `false`. When enabled, `downloadBlob` returns
 `{ blob, thumbnail, width, height, duration }`: an FFmpeg stream-copy normalized
 MP4 (fast-start, non-negative timestamps, no edit list), a JPEG thumbnail within

@@ -1,5 +1,5 @@
 import { concat } from "./isobmff";
-import type { Net } from "./internal";
+import { readBody, type Net } from "./internal";
 import { packedAacToMp4 } from "./packed-aac";
 
 // HLS support for the fMP4/CMAF playlists reddit-style muxing already covers:
@@ -54,11 +54,13 @@ export function parseMaster(text: string, baseUrl: string, options: { preferOrig
 }
 
 export async function assembleHls(net: Net, playlistUrl: string, headers: HeadersInit): Promise<Uint8Array> {
-  const response = await net(playlistUrl, { headers });
-  if (!response.ok) {
-    throw new Error(`HLS playlist failed: ${response.status}`);
-  }
-  const segments = mediaSegments(await response.text(), playlistUrl);
+  const text = await readBody(net, playlistUrl, { headers }, async (response) => {
+    if (!response.ok) {
+      throw new Error(`HLS playlist failed: ${response.status}`);
+    }
+    return response.text();
+  });
+  const segments = mediaSegments(text, playlistUrl);
   if (segments.length === 0) {
     throw new Error("HLS playlist has no segments");
   }
@@ -122,9 +124,10 @@ async function fetchSegment(net: Net, segment: Segment, headers: HeadersInit): P
   if (segment.range) {
     requestHeaders.set("range", `bytes=${segment.range.offset}-${segment.range.offset + segment.range.length - 1}`);
   }
-  const response = await net(segment.url, { headers: requestHeaders });
-  if (!response.ok) {
-    throw new Error(`HLS segment failed: ${response.status}`);
-  }
-  return new Uint8Array(await response.arrayBuffer());
+  return readBody(net, segment.url, { headers: requestHeaders }, async (response) => {
+    if (!response.ok) {
+      throw new Error(`HLS segment failed: ${response.status}`);
+    }
+    return new Uint8Array(await response.arrayBuffer());
+  });
 }

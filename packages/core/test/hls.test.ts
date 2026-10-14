@@ -63,6 +63,37 @@ describe("parseMaster", () => {
 });
 
 describe("assembleHls", () => {
+  test("retries interrupted playlists and byte-range segments with the same headers", async () => {
+    const calls = new Map<string, number>();
+    const playlist = '#EXTM3U\n#EXT-X-MAP:URI="data.cmfv",BYTERANGE="2@0"\n#EXT-X-BYTERANGE:2@2\ndata.cmfv';
+    const fetch = (async (input, init) => {
+      const url = String(input);
+      const headers = new Headers(init?.headers);
+      expect(headers.get("x-media")).toBe("required");
+      const range = headers.get("range");
+      const key = `${url} ${range ?? ""}`;
+      const count = (calls.get(key) ?? 0) + 1;
+      calls.set(key, count);
+      if (count === 1 && (url.endsWith(".m3u8") || range === "bytes=2-3")) {
+        let pulls = 0;
+        return new Response(new ReadableStream<Uint8Array>({
+          pull(controller) {
+            if (pulls++ === 0) controller.enqueue(Uint8Array.of(99));
+            else controller.error(new TypeError("error reading a body from connection"));
+          },
+        }));
+      }
+      return new Response(url.endsWith(".m3u8") ? playlist : range === "bytes=0-1" ? Uint8Array.of(1, 2) : Uint8Array.of(3, 4));
+    }) as typeof globalThis.fetch;
+    const bytes = await assembleHls(createNet(fetch), "https://cdn.test/playlist.m3u8", { "x-media": "required" });
+    expect(bytes).toEqual(Uint8Array.of(1, 2, 3, 4));
+    expect(Object.fromEntries(calls)).toEqual({
+      "https://cdn.test/playlist.m3u8 ": 2,
+      "https://cdn.test/data.cmfv bytes=0-1": 1,
+      "https://cdn.test/data.cmfv bytes=2-3": 2,
+    });
+  });
+
   test("concatenates an init segment and separate media segments", async () => {
     const playlist = ["#EXTM3U", '#EXT-X-MAP:URI="init.mp4"', "#EXTINF:2", "seg0.m4s", "#EXTINF:2", "seg1.m4s"].join("\n");
     const net = createNet(

@@ -289,6 +289,27 @@ export function createNet(baseFetch: typeof fetch = globalThis.fetch): Net {
   };
 }
 
+/** Retry interrupted body reads; request/status retries remain owned by net. */
+export async function readBody<T>(
+  net: Net,
+  url: string,
+  init: RequestInit,
+  read: (response: Response) => Promise<T>,
+): Promise<T> {
+  for (let attempt = 1; ; attempt += 1) {
+    const response = await net(url, init);
+    // Let callers report HTTP/empty-body failures without restarting request retries.
+    if (!response.ok || !response.body) return read(response);
+    try {
+      return await read(response);
+    } catch (error) {
+      if (attempt === 3) throw error;
+      await response.body?.cancel().catch(() => {});
+      await sleep(500 * 2 ** (attempt - 1));
+    }
+  }
+}
+
 export function object(value: unknown): value is Json {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }

@@ -1,5 +1,5 @@
 import { assembleHls } from "./hls";
-import { createNet, PostfetchError, type MediaItem, type Net, type PostfetchResult } from "./internal";
+import { createNet, PostfetchError, readBody, type MediaItem, type Net, type PostfetchResult } from "./internal";
 import { prepareMp4 } from "./mp4-remux";
 import { mergeAudioVideo } from "./remux";
 import { zip } from "./zip";
@@ -118,13 +118,16 @@ export async function downloadBlob(
   const options = modern ? optionsOrHeaders : legacyOptions;
   const headers = modern ? optionsOrHeaders.headers ?? {} : optionsOrHeaders;
   const net = createNet(options.fetch ?? globalThis.fetch);
-  const response = typeof input === "string"
-    ? await net(input, { headers })
-    : await download({ ...input, headers: modern ? optionsOrHeaders.headers ?? input.headers : input.headers }, options);
-  if (!response.ok || !response.body) {
-    throw new PostfetchError(502, `download failed: ${response.status}`);
-  }
-  const blob = await response.blob();
+  const item = typeof input === "string" ? null
+    : { ...input, headers: modern ? optionsOrHeaders.headers ?? input.headers : input.headers };
+  const blob = item && buffered(item)
+    ? new Blob([toArrayBuffer(await itemBytes(net, item))], { type: item.mime })
+    : await readBody(net, typeof input === "string" ? input : input.url, { headers: item?.headers ?? headers }, async (response) => {
+      if (!response.ok || !response.body) {
+        throw new PostfetchError(502, `download failed: ${response.status}`);
+      }
+      return response.blob();
+    });
   if (!modern || optionsOrHeaders.remux !== true) {
     return blob;
   }
@@ -267,11 +270,12 @@ async function mergedBytes(net: Net, item: MediaItem, audio: NonNullable<MediaIt
 }
 
 async function fetchBytes(net: Net, url: string, headers: HeadersInit): Promise<Uint8Array> {
-  const response = await net(url, { headers });
-  if (!response.ok) {
-    throw new PostfetchError(502, `download failed: ${response.status}`);
-  }
-  return new Uint8Array(await response.arrayBuffer());
+  return readBody(net, url, { headers }, async (response) => {
+    if (!response.ok) {
+      throw new PostfetchError(502, `download failed: ${response.status}`);
+    }
+    return new Uint8Array(await response.arrayBuffer());
+  });
 }
 
 function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
