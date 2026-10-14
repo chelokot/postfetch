@@ -73,7 +73,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        platform: [instagram, linkedin, tiktok, youtube, facebook, twitter, reddit, pinterest, soundcloud]
+        platform: [instagram, linkedin, tiktok, youtube, facebook, twitter, reddit, pinterest, soundcloud, spotify]
     steps:
       - uses: actions/checkout@v6
       - uses: oven-sh/setup-bun@v2
@@ -85,7 +85,7 @@ jobs:
           POSTFETCH_LIVE: "1"
           POSTFETCH_LIVE_PLATFORM: ${{ matrix.platform }}
         run: |
-          # Only YouTube and TikTok gate the datacenter runner IP, so only they
+          # YouTube (including Spotify matches) and TikTok gate the datacenter runner IP, so they
           # resolve through a free userspace Cloudflare WARP proxy (wgcf +
           # wireproxy, no privileges). The free WARP egress is a shared consumer
           # IP that YouTube sometimes rate-limits (429), and some runners drop
@@ -94,7 +94,7 @@ jobs:
           # gets a working tunnel falls back to the runner IP. Other platforms
           # resolve directly. Live jobs are non-gating regardless.
           case "$POSTFETCH_LIVE_PLATFORM" in
-            youtube | tiktok) ;;
+            youtube | spotify | tiktok) ;;
             *) exec bun test packages/core/test/live.test.ts ;;
           esac
 

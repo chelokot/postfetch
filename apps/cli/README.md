@@ -11,3 +11,6 @@ postfetch https://www.instagram.com/reel/DZ0ixNxtvYq/ -o ~/Downloads
 
 Single posts are written as one file; carousels and slideshows as a `.zip`.
 The written path is printed to stdout.
+
+Spotify track links download a matching YouTube video through the normal YouTube
+path. After downloading, the CLI also prints `YouTube: <watch URL>` to stderr.

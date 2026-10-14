@@ -42,7 +42,7 @@ if (result.items.length === 1) {
 | Export | Signature | Notes |
 | --- | --- | --- |
 | `postfetch` | `(url, options?) => Promise<PostfetchResult>` | Detects the platform and resolves its media. |
-| `detect` | `(url) => Platform` | `"facebook" \| "instagram" \| "linkedin" \| "pinterest" \| "reddit" \| "soundcloud" \| "tiktok" \| "twitter" \| "youtube"`; throws on anything else. |
+| `detect` | `(url) => Platform` | `"facebook" \| "instagram" \| "linkedin" \| "pinterest" \| "reddit" \| "soundcloud" \| "spotify" \| "tiktok" \| "twitter" \| "youtube"`; throws on anything else. |
 | `download` | `(item, options?) => Promise<Response>` | Fetches one item from its CDN with the right headers. |
 | `downloadBlob` | `(itemOrUrl, options?) => Promise<Blob \| RemuxedVideo>` | Downloads a media item including separate audio, or a direct URL; `remux: true` also returns video upload metadata. |
 | `buildAudioSliderVideo` | `(items, options) => Promise<Blob>` | Encodes images/videos followed by one audio item into an MP4 slideshow using local FFmpeg. |
@@ -166,6 +166,31 @@ A single post is written as one file, carousels and slideshows as a `.zip`; the 
 | Pinterest | video pin (progressive rendition) | `video/mp4` |
 | Pinterest | idea pin (HLS, video + audio merged) | `video/mp4` |
 | SoundCloud | track (progressive or HLS) | `audio/mpeg` or `audio/mp4` |
+| Spotify | public `open.spotify.com/track/…` link (also localized and embed links) | matching YouTube `video/mp4` (audio included) |
+
+Spotify track links use public embed metadata to search YouTube by artist and
+title. Matching checks title, primary artist and duration, rejects recognizable
+alternate versions unless requested, and prefers artist uploads. It is a
+heuristic: a missing match throws a `404` `PostfetchError` rather than selecting
+an unrelated result. Albums, playlists and Spotify shortlinks are not supported.
+
+The matched video goes through the existing YouTube resolver and download path,
+including separate audio and HLS fallback. The result has `platform: "spotify"`
+and the Spotify track id and metadata; its media items retain their YouTube
+platform, ids and filenames. The exact watch URL used is included in
+`metadata.extra.youtubeUrl`:
+
+```ts
+const result = await postfetch("https://open.spotify.com/track/2qGURS7y8zM7STkxOLgnWO");
+if (result.platform === "spotify") {
+  console.log(result.metadata?.extra?.youtubeUrl); // https://www.youtube.com/watch?v=…
+}
+await Bun.write(result.items[0].filename, await download(result.items[0]));
+```
+
+For Spotify results, `toResponse` includes `x-media-youtube-url` alongside the
+Spotify `x-media-platform` and `x-media-id`. The CLI prints `YouTube: <watch URL>`
+to stderr after downloading, while stdout remains the written file path.
 
 For an X quote post, `items` are ordered outer post first and quoted post second; each item's `id` identifies the status it came from. The quoted post's text and author are available at `metadata.extra.quotedTweet.metadata`. For replies, `metadata.extra.parentTweet` preserves the parent status id and normalized metadata when X includes it. Parent media is not added to `items`.
 

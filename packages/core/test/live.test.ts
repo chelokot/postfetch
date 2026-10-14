@@ -21,6 +21,23 @@ const reportedInstagramPhotos = [
 ];
 
 describe("live network", () => {
+  test.skipIf(!runs("spotify"))(
+    "spotify track matches YouTube and resolves a video with audio",
+    async () => {
+      const result = await postfetch("https://open.spotify.com/track/2qGURS7y8zM7STkxOLgnWO?si=example&utm_source=copy-link");
+      expect(result.platform).toBe("spotify");
+      if (result.platform !== "spotify") throw new Error("Expected Spotify");
+      expect(result.metadata?.title).toBe("Небо");
+      expect(result.metadata?.extra?.youtubeUrl).toMatch(/^https:\/\/www\.youtube\.com\/watch\?v=[A-Za-z0-9_-]{11}$/);
+      expect(result.items[0]?.platform).toBe("youtube");
+      expect(result.items[0]?.kind).toBe("video");
+      expect(result.items[0]?.mime).toBe("video/mp4");
+      expect(result.items[0]?.id).toBe(new URL(result.metadata!.extra!.youtubeUrl).searchParams.get("v")!);
+      expect(result.items[0]?.audio?.url).toBeDefined();
+    },
+    120_000,
+  );
+
   test.skipIf(!runs("twitter"))(
     "x long post and its quote resolve beyond the syndication previews",
     async () => {

@@ -5,6 +5,7 @@ import { resolveLinkedin } from "./linkedin";
 import { resolvePinterest } from "./pinterest";
 import { resolveReddit } from "./reddit";
 import { resolveSoundcloud } from "./soundcloud";
+import { resolveSpotify } from "./spotify";
 import { resolveTiktok } from "./tiktok";
 import { resolveTwitter } from "./twitter";
 import { resolveYoutube } from "./youtube";
@@ -85,6 +86,8 @@ async function resolve(context: ResolveContext): Promise<PostfetchResult> {
       return resolveReddit(context);
     case "soundcloud":
       return resolveSoundcloud(context);
+    case "spotify":
+      return resolveSpotify(context);
     case "tiktok":
       return resolveTiktok(context);
     case "twitter":
@@ -180,6 +183,9 @@ export function detect(url: string): Platform {
   if (host.includes("soundcloud.com") || host === "snd.sc") {
     return "soundcloud";
   }
+  if (host === "open.spotify.com") {
+    return "spotify";
+  }
   if (host.includes("youtube.com") || host === "youtu.be") {
     return "youtube";
   }
@@ -189,5 +195,5 @@ export function detect(url: string): Platform {
   if (host === "x.com" || host.endsWith(".x.com") || host.includes("twitter.com")) {
     return "twitter";
   }
-  throw new PostfetchError(400, "only Facebook, Instagram, LinkedIn, Pinterest, Reddit, SoundCloud, TikTok, X and YouTube URLs are supported");
+  throw new PostfetchError(400, "only Facebook, Instagram, LinkedIn, Pinterest, Reddit, SoundCloud, Spotify, TikTok, X and YouTube URLs are supported");
 }

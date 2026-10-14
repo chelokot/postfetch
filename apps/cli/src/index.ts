@@ -32,6 +32,9 @@ try {
     await Bun.write(path, bytes);
     console.info(path);
   }
+  if (result.platform === "spotify" && result.metadata?.extra?.youtubeUrl) {
+    console.error(`YouTube: ${result.metadata.extra.youtubeUrl}`);
+  }
 } catch (error) {
   const message = error instanceof Error ? error.message : "unknown error";
   console.error(`postfetch: ${message}`);

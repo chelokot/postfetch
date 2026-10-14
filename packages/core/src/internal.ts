@@ -1,5 +1,5 @@
 /** A platform that {@link postfetch} can resolve. */
-export type Platform = "facebook" | "instagram" | "linkedin" | "pinterest" | "reddit" | "soundcloud" | "tiktok" | "twitter" | "youtube";
+export type Platform = "facebook" | "instagram" | "linkedin" | "pinterest" | "reddit" | "soundcloud" | "spotify" | "tiktok" | "twitter" | "youtube";
 
 /** The kind of a {@link MediaItem}. */
 export type MediaKind = "audio" | "image" | "video";
@@ -151,6 +151,16 @@ export type SoundcloudExtra = {
   durationSeconds?: number;
 };
 
+/** Spotify track metadata, with the YouTube source selected for downloading. */
+export type SpotifyExtra = {
+  /** Artists credited on Spotify, in order. */
+  artists: string[];
+  /** Spotify track duration in seconds, when available. */
+  durationSeconds?: number;
+  /** Public watch URL passed to the existing YouTube resolver. */
+  youtubeUrl: string;
+};
+
 /** Pinterest-specific metadata. */
 export type PinterestExtra = {
   /** Times the pin was saved (repinned). */
@@ -181,6 +191,7 @@ export type PostfetchResult =
   | PlatformResult<"pinterest", PinterestExtra>
   | PlatformResult<"reddit", RedditExtra>
   | PlatformResult<"soundcloud", SoundcloudExtra>
+  | PlatformResult<"spotify", SpotifyExtra>
   | PlatformResult<"tiktok", TiktokExtra>
   | PlatformResult<"twitter", TwitterExtra>
   | PlatformResult<"youtube", YoutubeExtra>;

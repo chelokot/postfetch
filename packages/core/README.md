@@ -1,6 +1,6 @@
 # @postfetch/core
 
-Zero-dependency typed core that turns Facebook, Instagram, LinkedIn, Pinterest, Reddit, SoundCloud, TikTok, X and YouTube post URLs into media files. Part of [postfetch](https://github.com/chelokot/postfetch).
+Zero-dependency typed core that turns Facebook, Instagram, LinkedIn, Pinterest, Reddit, SoundCloud, Spotify, TikTok, X and YouTube post URLs into media files. Part of [postfetch](https://github.com/chelokot/postfetch).
 
 ```ts
 import { postfetch, download, downloadBlob, archive, toResponse, PostfetchError } from "@postfetch/core";
@@ -12,6 +12,15 @@ for (const item of result.items) {
 ```
 
 `postfetch(url, options?)` detects the platform and resolves its media into a typed `PostfetchResult` (URLs plus the headers needed to fetch them). It performs no side effects beyond the lookup — `download`, `downloadBlob`, `archive` and `toResponse` materialize the result.
+
+Spotify track URLs are matched to YouTube by artist, title and duration, preferring
+artist uploads and rejecting recognizable alternate versions unless requested.
+Results have `platform: "spotify"`, Spotify metadata and
+`metadata.extra.youtubeUrl` with the exact matched watch URL. Media items remain
+YouTube videos and use the existing video + audio download path and HLS fallback.
+`toResponse` also exposes the URL as `x-media-youtube-url`. Matching is heuristic;
+no match throws a `404` `PostfetchError`. Spotify albums, playlists and shortlinks
+are not supported.
 
 `downloadBlob(itemOrUrl, options?)` materializes resolved media for clients that
 need an uploadable `Blob`. Prefer `downloadBlob(item, { remux: true })` to

@@ -1,8 +1,9 @@
 /**
  * Turn a public social post URL into its media.
  *
- * {@link postfetch} resolves Instagram, LinkedIn, TikTok, YouTube, Facebook and X (Twitter)
- * URLs to typed {@link MediaItem}s. Zero dependencies, only Web-standard APIs
+ * {@link postfetch} resolves public social post and Spotify track URLs to typed
+ * {@link MediaItem}s. Spotify tracks are matched to YouTube videos.
+ * Zero dependencies, only Web-standard APIs
  * (`fetch`, `Response`, `URL`, `crypto`) — so it runs on Deno, Node, Bun,
  * Cloudflare Workers and browsers alike. It only resolves the media; the
  * {@link download}, {@link downloadBlob}, {@link archive} and {@link toResponse}
@@ -46,6 +47,7 @@ export type {
   PostMetadata,
   RedditExtra,
   SoundcloudExtra,
+  SpotifyExtra,
   TiktokExtra,
   TwitterExtra,
   TwitterQuotedTweet,

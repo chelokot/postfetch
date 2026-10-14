@@ -185,10 +185,16 @@ export async function archive(result: PostfetchResult, options: DownloadOptions 
  * @returns A `Response` a server or edge function can return directly.
  */
 export async function toResponse(result: PostfetchResult, options: DownloadOptions = {}): Promise<Response> {
-  if (result.items.length === 1) {
-    return singleResponse(result.items[0], options);
+  const response = result.items.length === 1
+    ? await singleResponse(result.items[0], options)
+    : await archiveResponse(result, options);
+  if (result.platform === "spotify") {
+    response.headers.set("x-media-platform", result.platform);
+    response.headers.set("x-media-id", result.id);
+    const youtubeUrl = result.metadata?.extra?.youtubeUrl;
+    if (youtubeUrl) response.headers.set("x-media-youtube-url", youtubeUrl);
   }
-  return archiveResponse(result, options);
+  return response;
 }
 
 async function singleResponse(item: MediaItem, options: DownloadOptions): Promise<Response> {
