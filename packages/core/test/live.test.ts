@@ -21,6 +21,35 @@ const reportedInstagramPhotos = [
 ];
 
 describe("live network", () => {
+  for (const [id, title] of [
+    ["1MNoaPv7HGoYbZfeAbzPVZ", "Долгая счастливая жизнь"],
+    ["3EMuJXzug2L4mjEUIEkfjG", "Clair Obscur: Expedition 33 - Alicia - A COLORS SHOW"],
+  ]) {
+    test.skipIf(!runs("spotify"))(
+      `reported Spotify track ${id} resolves and downloads video with audio`,
+      async () => {
+        const result = await postfetch(`https://open.spotify.com/track/${id}?si=example&utm_source=copy-link`);
+        expect(result.platform).toBe("spotify");
+        if (result.platform !== "spotify") throw new Error("Expected Spotify");
+        expect(result.metadata?.title).toBe(title);
+        const item = result.items[0];
+        expect(item?.kind).toBe("video");
+        expect(item?.audio).toBeDefined();
+        expect(result.metadata?.extra?.youtubeUrl).toBe(`https://www.youtube.com/watch?v=${item?.id}`);
+        const bytes = new Uint8Array(await (await download(item!)).arrayBuffer());
+        const moov = findBox(parseBoxes(bytes), "moov");
+        if (!moov) throw new Error("Downloaded video has no MP4 movie box");
+        const handlers = childBoxes(bytes, moov).filter((box) => box.type === "trak").map((trak) => {
+          const mdia = findBox(childBoxes(bytes, trak), "mdia");
+          const hdlr = mdia && findBox(childBoxes(bytes, mdia), "hdlr");
+          return hdlr ? new TextDecoder().decode(bytes.subarray(hdlr.dataStart + 8, hdlr.dataStart + 12)) : "";
+        });
+        expect(handlers.sort()).toEqual(["soun", "vide"]);
+      },
+      120_000,
+    );
+  }
+
   test.skipIf(!runs("spotify"))(
     "spotify track matches YouTube and resolves a video with audio",
     async () => {
