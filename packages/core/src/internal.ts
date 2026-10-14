@@ -159,6 +159,8 @@ export type SpotifyExtra = {
   durationSeconds?: number;
   /** Public watch URL passed to the existing YouTube resolver. */
   youtubeUrl: string;
+  /** A live performance was selected after original-recording searches failed. */
+  youtubeLiveFallback?: boolean;
 };
 
 /** Pinterest-specific metadata. */
@@ -237,6 +239,7 @@ export type PostfetchReason =
   | "loginRequired"
   | "deleted"
   | "notFound"
+  | "noMatch"
   | "rateLimited"
   | "unavailable";
 

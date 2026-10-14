@@ -25,17 +25,20 @@ function fixture(options: {
   searchStatus?: number;
   fallback?: boolean;
   assignment?: string;
+  searches?: Record<string, unknown>[][];
+  unavailableVideos?: string[];
 } = {}) {
   const calls: { url: string; init?: RequestInit }[] = [];
   const entity = { id, type: "track", title: "Небо", artists: [{ name: "SadSvit" }], duration: 219847, ...options.entity };
   const spotifyHtml = `<script type="application/json" id="__NEXT_DATA__">${JSON.stringify({
     props: { pageProps: { state: { data: { entity } } } },
   })}</script>`;
-  const searchHtml = `<script>${options.assignment ?? "var ytInitialData"} = ${JSON.stringify({
+  const searchHtml = (candidates: Record<string, unknown>[]) => `<script>${options.assignment ?? "var ytInitialData"} = ${JSON.stringify({
     contents: { twoColumnSearchResultsRenderer: { primaryContents: { sectionListRenderer: { contents: [
-      { itemSectionRenderer: { contents: (options.candidates ?? [candidate()]).map((videoRenderer) => ({ videoRenderer })) } },
+      { itemSectionRenderer: { contents: candidates.map((videoRenderer) => ({ videoRenderer })) } },
     ] } } } },
   })}; window.otherValue = {};</script>`;
+  let searches = 0;
   const fetch = (async (input: string | URL | Request, init?: RequestInit) => {
     const url = String(input);
     calls.push({ url, init });
@@ -43,7 +46,8 @@ function fixture(options: {
       return new Response(options.spotifyHtml ?? spotifyHtml, { status: options.spotifyStatus ?? 200 });
     }
     if (url.startsWith("https://www.youtube.com/results?")) {
-      return new Response(options.searchHtml ?? searchHtml, { status: options.searchStatus ?? 200 });
+      const candidates = options.searches ? options.searches[searches++] ?? [] : options.candidates ?? [candidate()];
+      return new Response(options.searchHtml ?? searchHtml(candidates), { status: options.searchStatus ?? 200 });
     }
     if (url.startsWith("https://www.youtube.com/watch?")) {
       return new Response('"visitorData":"visitor","jsUrl":"/s/player/test/base.js"');
@@ -51,6 +55,9 @@ function fixture(options: {
     if (url.includes("/s/player/")) return new Response("signatureTimestamp:20000");
     if (url.includes("/youtubei/v1/player")) {
       const body = JSON.parse(String(init?.body));
+      if (options.unavailableVideos?.includes(body.videoId)) {
+        return Response.json({ playabilityStatus: { status: "UNPLAYABLE", reason: "This video is not available" } });
+      }
       if (options.fallback && body.context.client.clientName === "ANDROID_VR") {
         return Response.json({ playabilityStatus: { status: "ERROR" } });
       }
@@ -93,6 +100,94 @@ describe("Spotify YouTube matching", () => {
     const player = stub.calls.find(({ url }) => url.includes("/youtubei/v1/player"));
     expect(JSON.parse(String(player?.init?.body)).videoId).toBe(videoId);
     expect(result.items[0].filename).toEndWith(".mp4");
+    expect(stub.calls.filter(({ url }) => url.includes("/results?")).length).toBe(1);
+  });
+
+  test("tries another query when the first search has no match", async () => {
+    const stub = fixture({ searches: [[], [candidate()]] });
+    const result = await postfetch(spotifyUrl, stub);
+    expect(result.items[0].id).toBe(videoId);
+    const queries = stub.calls.filter(({ url }) => url.includes("/results?")).map(({ url }) => new URL(url).searchParams.get("search_query"));
+    expect(queries).toEqual(["SadSvit Небо audio", 'SadSvit "Небо"']);
+  });
+
+  test("tries the next matched upload when the preferred upload is unavailable", async () => {
+    const otherId = "Jj9RSrfs4tY";
+    const stub = fixture({ candidates: [candidate(), candidate({ videoId: otherId })], unavailableVideos: [videoId] });
+    const result = await postfetch(spotifyUrl, stub);
+    expect(result.items[0].id).toBe(otherId);
+    expect(stub.calls.filter(({ url }) => url.includes("/results?")).length).toBe(1);
+    expect(stub.calls.filter(({ url }) => url.includes("/watch?")).map(({ url }) => new URL(url).searchParams.get("v"))).toEqual([videoId, otherId]);
+  });
+
+  test("deduplicates unavailable uploads across queries and caps original resolution attempts at three", async () => {
+    const ids = [videoId, "Jj9RSrfs4tY", "cPzhNzqt9LB", "cPzhNzqt9LC"];
+    const stub = fixture({ candidates: ids.map((videoId) => candidate({ videoId })), unavailableVideos: ids });
+    await expect(postfetch(spotifyUrl, stub)).rejects.toThrow("This video is not available");
+    expect(stub.calls.filter(({ url }) => url.includes("/watch?")).map(({ url }) => new URL(url).searchParams.get("v"))).toEqual(ids.slice(0, 3));
+    expect(stub.calls.filter(({ url }) => url.includes("/results?")).length).toBe(4);
+  });
+
+  const liveId = "DuboSByuoNA";
+  const liveVideo = candidate({ videoId: liveId, title: { simpleText: "SadSvit - Небо (Live)" } });
+
+  test("searches for original recordings before choosing a live result from an earlier query", async () => {
+    const stub = fixture({ searches: [[liveVideo], [], [candidate()]] });
+    const result = await postfetch(spotifyUrl, stub);
+    expect(result.items[0].id).toBe(videoId);
+    expect(result.metadata?.extra).not.toHaveProperty("youtubeLiveFallback");
+    expect(stub.calls.filter(({ url }) => url.includes("/watch?")).length).toBe(1);
+  });
+
+  test("uses a live performance only after original searches and resolution fail", async () => {
+    const stub = fixture({ candidates: [candidate(), liveVideo], unavailableVideos: [videoId] });
+    const result = await postfetch(spotifyUrl, stub);
+    expect(result.items[0].id).toBe(liveId);
+    expect(result.metadata?.extra).toMatchObject({ youtubeUrl: `https://www.youtube.com/watch?v=${liveId}`, youtubeLiveFallback: true });
+    expect(stub.calls.filter(({ url }) => url.includes("/results?")).length).toBe(4);
+    expect(stub.calls.filter(({ url }) => url.includes("/watch?")).map(({ url }) => new URL(url).searchParams.get("v"))).toEqual([videoId, liveId]);
+  });
+
+  test("finds Moonpills by its joined title and matches the long Chkbns abbreviation", async () => {
+    const stub = fixture({
+      entity: { title: "Moon Pills", artists: [{ name: "Chkbns" }], duration: 267847 },
+      searches: [[], [], [], [candidate({ videoId: liveId, title: { simpleText: "Cheekbones - Moonpills (Live at Oxygen Studio)" }, ownerText: { simpleText: "Oxygen Studio" }, lengthText: { simpleText: "4:17" } })]],
+    });
+    const result = await postfetch(spotifyUrl, stub);
+    expect(result.metadata?.extra).toMatchObject({ youtubeUrl: `https://www.youtube.com/watch?v=${liveId}`, youtubeLiveFallback: true });
+    const queries = stub.calls.filter(({ url }) => url.includes("/results?")).map(({ url }) => new URL(url).searchParams.get("search_query"));
+    expect(queries).toEqual(['Chkbns Moon Pills audio', 'Chkbns "Moon Pills"', 'Moon Pills', 'Chkbns MoonPills']);
+  });
+
+  for (const [label, override] of Object.entries({
+    "another artist": { title: { simpleText: "Other Band - Moonpills (Live)" } },
+    "another song": { title: { simpleText: "Cheekbones - Moonpill (Live)" } },
+    "cover": { title: { simpleText: "Cheekbones - Moonpills (Live cover)" } },
+    "speed edit": { title: { simpleText: "Cheekbones - Moonpills (Live sped up)" } },
+    "wrong duration": { lengthText: { simpleText: "10:00" } },
+  })) {
+    test(`rejects a live fallback with ${label}`, async () => {
+      const stub = fixture({
+        entity: { title: "Moon Pills", artists: [{ name: "Chkbns" }], duration: 267847 },
+        candidates: [candidate({ title: { simpleText: "Cheekbones - Moonpills (Live)" }, ownerText: { simpleText: "Oxygen Studio" }, lengthText: { simpleText: "4:17" }, ...override })],
+      });
+      await expect(postfetch(spotifyUrl, stub)).rejects.toMatchObject({ reason: "noMatch" });
+      expect(stub.calls.some(({ url }) => url.includes("/watch?"))).toBe(false);
+    });
+  }
+
+  test("does not expand short artist acronyms", async () => {
+    await expect(postfetch(spotifyUrl, fixture({
+      entity: { artists: [{ name: "Scvt" }] },
+      candidates: [candidate({ title: { simpleText: "Небо" }, ownerText: { simpleText: "Sacovita - Topic" } })],
+    }))).rejects.toMatchObject({ reason: "noMatch" });
+  });
+
+  test("caps live resolution attempts at two and keeps playback errors", async () => {
+    const ids = [liveId, "Jj9RSrfs4tY", "cPzhNzqt9LC"];
+    const stub = fixture({ candidates: ids.map((videoId) => ({ ...liveVideo, videoId })), unavailableVideos: ids });
+    await expect(postfetch(spotifyUrl, stub)).rejects.toThrow("This video is not available");
+    expect(stub.calls.filter(({ url }) => url.includes("/watch?")).map(({ url }) => new URL(url).searchParams.get("v"))).toEqual(ids.slice(0, 2));
   });
 
   test("preserves the YouTube HLS fallback", async () => {
@@ -109,6 +204,72 @@ describe("Spotify YouTube matching", () => {
     expect(result.metadata?.extra?.youtubeUrl).toBe(youtubeUrl);
   });
 
+  test("accepts one adjacent-letter typo in a long artist name on a Topic channel", async () => {
+    const result = await postfetch(spotifyUrl, fixture({
+      entity: { title: "Долгая счастливая жизнь", artists: [{ name: "Grazhdanskaya Oborona" }], duration: 325402 },
+      candidates: [candidate({ title: { simpleText: "Долгая счастливая жизнь" }, ownerText: { simpleText: "Grahzdanskaya Oborona - Topic" }, lengthText: { simpleText: "5:26" } })],
+    }));
+    expect(result.items[0].id).toBe(videoId);
+  });
+
+  for (const [label, artist, author] of [
+    ["ordinary uploader", "Grazhdanskaya Oborona", "Grahzdanskaya Oborona"],
+    ["short artist name", "Live", "Lvie - Topic"],
+    ["two transpositions", "Grazhdanskaya Oborona", "Grahzdanskaya Oboorna - Topic"],
+    ["different second name", "Grazhdanskaya Oborona", "Grahzdanskaya Orchestra - Topic"],
+    ["extra artist name", "Grazhdanskaya Oborona", "Grahzdanskaya Oborona Covers - Topic"],
+  ]) {
+    test(`keeps artist matching strict for a ${label}`, async () => {
+      await expect(postfetch(spotifyUrl, fixture({
+        entity: { artists: [{ name: artist }] },
+        candidates: [candidate({ title: { simpleText: "Небо" }, ownerText: { simpleText: author } })],
+      }))).rejects.toMatchObject({ reason: "noMatch" });
+    });
+  }
+
+  const colorsTrack = {
+    title: "Clair Obscur: Expedition 33 - Alicia - A COLORS SHOW",
+    artists: [{ name: "Alice Duport-Percier" }, { name: "Lorien Testard" }, { name: "COLORS" }],
+    duration: 169832,
+  };
+  const colorsVideo = {
+    title: { simpleText: "Alice Duport-Percier x Lorien Testard - Alicia | A COLORS SHOW" },
+    ownerText: { simpleText: "COLORS" }, lengthText: { simpleText: "2:50" },
+  };
+
+  test("matches soundtrack context omitted from a fully credited song and show title", async () => {
+    const result = await postfetch(spotifyUrl, fixture({ entity: colorsTrack, candidates: [candidate(colorsVideo)] }));
+    expect(result.items[0].id).toBe(videoId);
+  });
+
+  for (const [label, overrides] of Object.entries({
+    "missing artist": { title: { simpleText: "Alice Duport-Percier - Alicia | A COLORS SHOW" } },
+    "different song": { title: { simpleText: "Alice Duport-Percier x Lorien Testard - Aline | A COLORS SHOW" } },
+    "different show": { title: { simpleText: "Alice Duport-Percier x Lorien Testard - Alicia | OTHER SHOW" } },
+    "different recording": { title: { simpleText: "Alice Duport-Percier x Lorien Testard - Alicia | A COLORS SHOW (cover)" } },
+    "different duration": { lengthText: { simpleText: "4:00" } },
+  })) {
+    test(`rejects a shortened soundtrack title with a ${label}`, async () => {
+      await expect(postfetch(spotifyUrl, fixture({ entity: colorsTrack, candidates: [candidate({ ...colorsVideo, ...overrides })] })))
+        .rejects.toMatchObject({ reason: "noMatch" });
+    });
+  }
+
+  test("does not shorten ordinary segmented song titles", async () => {
+    await expect(postfetch(spotifyUrl, fixture({
+      entity: { ...colorsTrack, title: "Another Song - Alicia - A COLORS SHOW" },
+      candidates: [candidate(colorsVideo)],
+    }))).rejects.toMatchObject({ reason: "noMatch" });
+  });
+
+  test("parses YouTube's JSON script search payload", async () => {
+    const searchHtml = `<script id="yt-initial-data" type="application/json">${JSON.stringify({
+      contents: { itemSectionRenderer: { contents: [{ videoRenderer: candidate() }] } },
+    })}</script><script>window['ytInitialData'] = JSON.parse(document.getElementById('yt-initial-data').textContent);</script>`;
+    const result = await postfetch(spotifyUrl, fixture({ searchHtml }));
+    expect(result.items[0].id).toBe(videoId);
+  });
+
   for (const [label, invalid] of Object.entries({
     "wrong title": { title: { simpleText: "SadSvit - Касета" } },
     "wrong artist": { title: { simpleText: "Other artist - Небо" }, ownerText: { simpleText: "Other artist" } },
@@ -121,7 +282,7 @@ describe("Spotify YouTube matching", () => {
   })) {
     test(`rejects a ${label} instead of taking the first search result`, async () => {
       const stub = fixture({ candidates: [candidate(invalid)] });
-      await expect(postfetch(spotifyUrl, stub)).rejects.toMatchObject({ status: 404, reason: "notFound" });
+      await expect(postfetch(spotifyUrl, stub)).rejects.toMatchObject({ status: 404, reason: "noMatch" });
       expect(stub.calls.some(({ url }) => url.includes("/watch?"))).toBe(false);
     });
   }
@@ -200,6 +361,6 @@ describe("Spotify YouTube matching", () => {
   test("distinguishes search failure from a valid search with no match", async () => {
     await expect(postfetch(spotifyUrl, fixture({ searchStatus: 403 }))).rejects.toMatchObject({ status: 502 });
     await expect(postfetch(spotifyUrl, fixture({ searchHtml: "<html>consent page</html>" }))).rejects.toMatchObject({ status: 502 });
-    await expect(postfetch(spotifyUrl, fixture({ candidates: [] }))).rejects.toMatchObject({ status: 404 });
+    await expect(postfetch(spotifyUrl, fixture({ candidates: [] }))).rejects.toMatchObject({ status: 404, reason: "noMatch" });
   });
 });

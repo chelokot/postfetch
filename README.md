@@ -175,9 +175,18 @@ A single post is written as one file, carousels and slideshows as a `.zip`; the 
 
 Spotify track links use public embed metadata to search YouTube by artist and
 title. Matching checks title, primary artist and duration, rejects recognizable
-alternate versions unless requested, and prefers artist uploads. It is a
-heuristic: a missing match throws a `404` `PostfetchError` rather than selecting
-an unrelated result. Albums, playlists and Spotify shortlinks are not supported.
+covers, remixes and speed edits unless requested, and prefers artist uploads. It is a
+heuristic: a missing match throws a `404` `PostfetchError` with reason `noMatch`,
+which does not mean the Spotify track was removed. Matching allows one adjacent
+letter swap in a long artist name on a Topic channel, and omitted soundtrack
+context only when the remaining song/show title and all artist credits match.
+If the first search or upload fails, it tries up to four query variants and
+three original-recording uploads. As a last resort, it tries up to two matching
+live performances. Joined title words and long vowel-free artist abbreviations
+are recognized, such as `Moon Pills` / `Moonpills` and `Chkbns` / `Cheekbones`.
+A live fallback sets `metadata.extra.youtubeLiveFallback` to `true`, while
+`youtubeUrl` always identifies the selected upload.
+Albums, playlists and Spotify shortlinks are not supported.
 
 The matched video goes through the existing YouTube resolver and download path,
 including separate audio and HLS fallback. The result has `platform: "spotify"`
