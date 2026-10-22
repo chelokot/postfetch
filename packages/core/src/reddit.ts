@@ -100,14 +100,19 @@ async function appToken(net: Net): Promise<string> {
 }
 
 async function fetchPost(net: Net, token: string, id: string): Promise<Json> {
-  const response = await net(`https://oauth.reddit.com/comments/${id}?raw_json=1&limit=1`, {
-    headers: { authorization: `Bearer ${token}`, "user-agent": browserUserAgent() },
-  });
+  const headers = { authorization: `Bearer ${token}`, "user-agent": browserUserAgent() };
+  let response = await net(`https://oauth.reddit.com/comments/${id}?raw_json=1&limit=1`, { headers });
+  // Reddit can block the comments route while still allowing direct post
+  // listings with the same token. This route returns the post, not its replies.
+  if (response.status === 403) {
+    await response.body?.cancel();
+    response = await net(`https://oauth.reddit.com/by_id/t3_${id}?raw_json=1`, { headers });
+  }
   if (!response.ok) {
     throw new Error(`Reddit post failed: ${response.status}`);
   }
   const payload = await response.json().catch(() => null);
-  const listing = Array.isArray(payload) ? payload[0] : null;
+  const listing = Array.isArray(payload) ? payload[0] : payload;
   const children = object(listing) && object(listing.data) && Array.isArray(listing.data.children) ? listing.data.children : [];
   const first = children[0];
   const post = object(first) && object(first.data) ? first.data : null;
