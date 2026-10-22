@@ -171,7 +171,7 @@ export function detect(url: string): Platform {
   if (host.includes("instagram.com")) {
     return "instagram";
   }
-  if (host === "linkedin.com" || host.endsWith(".linkedin.com")) {
+  if (host === "linkedin.com" || host.endsWith(".linkedin.com") || host === "lnkd.in") {
     return "linkedin";
   }
   if (host.includes("pinterest.") || host === "pin.it") {

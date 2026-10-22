@@ -389,6 +389,24 @@ describe("live network", () => {
   );
 
   test.skipIf(!runs("linkedin"))(
+    "reported linkedin lnkd.in post shortlink resolves and downloads its video",
+    async () => {
+      const result = await postfetch("https://lnkd.in/p/dCMkSApV");
+      expect(result.platform).toBe("linkedin");
+      expect(result.id).toBe("7518607231823728641");
+      expect(result.metadata?.author?.handle).toBe("danilo-giudice");
+      expect(result.metadata?.text).toContain("Revenue: $16.3B");
+      const item = result.items[0];
+      expect(item?.kind).toBe("video");
+      expect(item?.mime).toBe("video/mp4");
+      if (!item) throw new Error("no item");
+      const bytes = new Uint8Array(await (await download(item)).arrayBuffer());
+      expect(String.fromCharCode(bytes[4], bytes[5], bytes[6], bytes[7])).toBe("ftyp");
+    },
+    30_000,
+  );
+
+  test.skipIf(!runs("linkedin"))(
     "linkedin public post resolves its highest-bitrate video and metadata",
     async () => {
       const result = await postfetch("https://www.linkedin.com/posts/microsoft-security_watch-the-video-activity-7163247035113013249-ltdX");

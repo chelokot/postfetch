@@ -157,8 +157,8 @@ A single post is written as one file, carousels and slideshows as a `.zip`; the 
 | TikTok | image / slideshow post | `zip` of images (+ audio) |
 | Instagram | reel, video, or photo | `video/mp4` or `image/jpeg` |
 | Instagram | carousel | `zip` of images / videos |
-| LinkedIn | public post with video | highest-bitrate `video/mp4` |
-| LinkedIn | public post with an image | `image/jpeg` |
+| LinkedIn | public post with video, including `lnkd.in/p/…` shortlinks | highest-bitrate `video/mp4` |
+| LinkedIn | public post with an image, including `lnkd.in` shortlinks | `image/jpeg` |
 | YouTube | `watch`, `shorts`, `live`, `embed`, `youtu.be` | up to 1080p `video/mp4` (audio remuxed) |
 | Facebook | reel, video, `/share/v/…`, `fb.watch` | `video/mp4` |
 | Facebook | public text post | metadata (`items: []`) |

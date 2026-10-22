@@ -10,6 +10,73 @@ function stubPage(html: string, requested: string[]): typeof fetch {
 }
 
 describe("linkedin", () => {
+  test("expands lnkd.in post and legacy shortlinks before resolving canonical media", async () => {
+    const id = "7518607231823728641";
+    const pageUrl = "https://www.linkedin.com/feed/update/urn:li:ugcPost:7518607188127596544";
+    const post = {
+      "@type": "VideoObject",
+      "@id": `https://www.linkedin.com/posts/danilo-giudice_revenue-activity-${id}-A5uq`,
+      contentUrl: "https://cdn.test/video.mp4",
+      description: "Revenue: $16.3B",
+      creator: { name: "Danilo Giudice", url: "https://it.linkedin.com/in/danilo-giudice" },
+    };
+    for (const shortUrl of ["https://lnkd.in/p/dCMkSApV", "https://lnkd.in/dCMkSApV?trk=share"]) {
+      const requested: string[] = [];
+      const result = await postfetch(shortUrl, {
+        fetch: (async (input, init) => {
+          const url = String(input);
+          requested.push(url);
+          if (url === shortUrl) {
+            expect(init?.redirect).toBe("manual");
+            expect(new Headers(init?.headers).get("user-agent")).toBeTruthy();
+            return new Response(null, {
+              status: 301,
+              headers: { location: "https://www.linkedin.com/posts/danilo-giudice_revenue-ugcPost-7518607188127596544-yYp-/?utm_source=share" },
+            });
+          }
+          expect(url).toBe(pageUrl);
+          return new Response(`<script type="application/ld+json">${JSON.stringify(post)}</script>`);
+        }) as typeof fetch,
+      });
+
+      expect(requested).toEqual([shortUrl, pageUrl]);
+      expect(result).toMatchObject({
+        id,
+        platform: "linkedin",
+        archiveFilename: `linkedin_${id}.zip`,
+        items: [{ id, filename: `linkedin_${id}.mp4`, kind: "video", url: "https://cdn.test/video.mp4", headers: { referer: pageUrl } }],
+        metadata: { text: "Revenue: $16.3B", author: { handle: "danilo-giudice", name: "Danilo Giudice" } },
+      });
+    }
+  });
+
+  test("rejects shortlinks without a LinkedIn post destination", async () => {
+    for (const location of [
+      null,
+      "https://www.linkedin.com/in/example",
+      "https://example.com/posts/example-activity-123-test",
+      "https://linkedin.com.example.com/feed/update/urn:li:activity:123",
+      "not a url",
+    ]) {
+      const requested: string[] = [];
+      await expect(postfetch("https://lnkd.in/p/invalid", {
+        fetch: (async (input) => {
+          requested.push(String(input));
+          return new Response(null, { status: 302, headers: location ? { location } : {} });
+        }) as typeof fetch,
+      })).rejects.toMatchObject({ status: 400, message: "LinkedIn post id not found" });
+      expect(requested).toEqual(["https://lnkd.in/p/invalid"]);
+    }
+  });
+
+  test("preserves LinkedIn errors when a shortlink cannot be expanded", async () => {
+    for (const [status, reason] of [[404, "notFound"], [429, "rateLimited"], [403, "unavailable"]] as const) {
+      await expect(postfetch("https://lnkd.in/p/unavailable", {
+        fetch: (async (_input: string | URL | Request) => new Response(null, { status, headers: { "retry-after": "0" } })) as typeof fetch,
+      })).rejects.toMatchObject({ status, reason });
+    }
+  });
+
   test("selects the highest-bitrate MP4 and maps VideoObject metadata", async () => {
     const post = {
       "@context": "https://schema.org",

@@ -13,6 +13,8 @@ for (const item of result.items) {
 
 `postfetch(url, options?)` detects the platform and resolves its media into a typed `PostfetchResult` (URLs plus the headers needed to fetch them). It performs no side effects beyond the lookup — `download`, `downloadBlob`, `archive` and `toResponse` materialize the result.
 
+LinkedIn public posts also accept `lnkd.in` shortlinks, including `https://lnkd.in/p/…`.
+
 Spotify track URLs are matched to YouTube by artist, title and duration, preferring
 artist uploads and rejecting recognizable alternate versions unless requested.
 Results have `platform: "spotify"`, Spotify metadata and

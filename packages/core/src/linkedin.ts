@@ -21,21 +21,10 @@ type LinkedinPostReference = {
 };
 
 export async function resolveLinkedin(input: ResolveContext): Promise<PostfetchResult> {
-  const reference = postReference(input.url);
+  const reference = await postReference(input);
   const pageUrl = `https://www.linkedin.com/feed/update/urn:li:${reference.kind}:${reference.id}`;
   const response = await input.net(pageUrl, { headers: navigationHeaders() });
-  if (response.status === 404) {
-    throw new PostfetchError(404, "LinkedIn post not found", "notFound");
-  }
-  if (response.status === 429 || response.status === 999) {
-    throw new PostfetchError(429, "LinkedIn rate limit reached", "rateLimited");
-  }
-  if (!response.ok) {
-    throw new PostfetchError(response.status, "LinkedIn post unavailable", "unavailable");
-  }
-  if (response.url.includes("/signup/") || response.url.includes("/login")) {
-    throw new PostfetchError(401, "LinkedIn login required", "loginRequired");
-  }
+  checkResponse(response);
 
   const html = await response.text();
   const post = linkedinPost(html);
@@ -76,8 +65,33 @@ export function linkedinMetadata(post: Json): PostMetadata {
   };
 }
 
-function postReference(input: string): LinkedinPostReference {
-  const reference = postReferenceOrNull(input);
+function checkResponse(response: Response): void {
+  if (response.status === 404) {
+    throw new PostfetchError(404, "LinkedIn post not found", "notFound");
+  }
+  if (response.status === 429 || response.status === 999) {
+    throw new PostfetchError(429, "LinkedIn rate limit reached", "rateLimited");
+  }
+  if (!response.ok) {
+    throw new PostfetchError(response.status, "LinkedIn post unavailable", "unavailable");
+  }
+  if (response.url.includes("/signup/") || response.url.includes("/login")) {
+    throw new PostfetchError(401, "LinkedIn login required", "loginRequired");
+  }
+}
+
+async function postReference(input: ResolveContext): Promise<LinkedinPostReference> {
+  let url = input.url;
+  if (new URL(url).hostname === "lnkd.in") {
+    // Read the destination without fetching the post twice or following outbound links.
+    const response = await input.net(url, { headers: navigationHeaders(), redirect: "manual" });
+    await response.body?.cancel();
+    if (![301, 302, 303, 307, 308].includes(response.status)) {
+      checkResponse(response);
+    }
+    url = response.headers.get("location") ?? "";
+  }
+  const reference = postReferenceOrNull(url);
   if (!reference) {
     throw new PostfetchError(400, "LinkedIn post id not found");
   }
@@ -87,7 +101,11 @@ function postReference(input: string): LinkedinPostReference {
 function postReferenceOrNull(input: string): LinkedinPostReference | null {
   let pathname: string;
   try {
-    pathname = new URL(input).pathname.replace(/%3A/gi, ":");
+    const url = new URL(input);
+    if (url.hostname !== "linkedin.com" && !url.hostname.endsWith(".linkedin.com")) {
+      return null;
+    }
+    pathname = url.pathname.replace(/%3A/gi, ":");
   } catch {
     return null;
   }
