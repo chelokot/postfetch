@@ -91,7 +91,7 @@ async function instagramUnavailable(net: Net, code: string, pageReason?: Postfet
   const body = response ? await response.text().catch(() => "") : "";
   // The page can identify an age gate even when oembed only reports a generic
   // geoblock_required error with no MIN_AGE_ACCOUNT marker.
-  const reason = pageReason ?? instagramUnavailableReason(response?.status ?? 0, body);
+  const reason = pageReason ?? instagramUnavailableReason(response?.status ?? 0, body, code);
   // Carry the oembed status so an unclassified failure still leaves a raw clue
   // (200 = post is public but no media could be parsed; 429 = throttled; …).
   const probe = response ? `oembed ${response.status}` : "oembed unreachable";
@@ -101,10 +101,11 @@ async function instagramUnavailable(net: Net, code: string, pageReason?: Postfet
 // Classifies why the post is gone from the oembed endpoint, which returns a
 // telling status and body (404 when removed; 429 when throttled; 400 with a
 // MIN_AGE_ACCOUNT block for 18+ accounts) while the media endpoints just come
-// back empty.
-export function instagramUnavailableReason(status: number, body: string): PostfetchReason {
+// back empty. Share links to posts from private accounts carry a long
+// shortcode, and oembed answers those with the same 404 as a removed post.
+export function instagramUnavailableReason(status: number, body: string, code?: string): PostfetchReason {
   if (status === 404) {
-    return "notFound";
+    return code && isPrivateShortcode(code) ? "private" : "notFound";
   }
   if (status === 429) {
     return "rateLimited";
@@ -122,6 +123,12 @@ export function instagramUnavailableReason(status: number, body: string): Postfe
     return "loginRequired";
   }
   return "unavailable";
+}
+
+// Public shortcodes are at most 11 characters; private share links append an
+// owner-scoped suffix (for example 39 characters in total).
+function isPrivateShortcode(code: string): boolean {
+  return code.length > 11;
 }
 
 function reasonStatus(reason: PostfetchReason): number {

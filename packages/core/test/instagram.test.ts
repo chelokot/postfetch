@@ -18,6 +18,11 @@ describe("instagram unavailable reason", () => {
     expect(instagramUnavailableReason(429, "")).toBe("rateLimited");
   });
 
+  test("maps a 404 for a private share-link shortcode to a private post", () => {
+    expect(instagramUnavailableReason(404, "No Media Match", "Dez5H6Ojs7nPXbj07KMfMe1Ftsfhs7m1MFHsRg0")).toBe("private");
+    expect(instagramUnavailableReason(404, "No Media Match", "Dez5H6Ojs7n")).toBe("notFound");
+  });
+
   test("detects private accounts and login walls", () => {
     expect(instagramUnavailableReason(400, "This account is private")).toBe("private");
     expect(instagramUnavailableReason(401, "Please log in to continue")).toBe("loginRequired");
