@@ -127,3 +127,108 @@ describe("Reddit comments", () => {
     expect(result.comments).toEqual([]);
   });
 });
+
+describe("Reddit GraphQL comment fallback", () => {
+  const tree = (id: string, fields: Record<string, unknown> = {}, treeFields: Record<string, unknown> = {}) => ({
+    depth: 0, parentId: null, node: {
+      __typename: "Comment", id: `t1_${id}`, authorInfo: { name: "reader" },
+      content: { markdown: `Comment ${id}`, richtextMedia: [] },
+      createdAt: "2026-10-23T20:28:11.169000+0000", score: 23, ...fields,
+    }, ...treeFields,
+  });
+  const continuation = (cursor: string, fields: Record<string, unknown> = {}) => ({ depth: 0, parentId: null, more: { cursor }, ...fields });
+  const page = (...trees: unknown[]) => ({ data: { postInfoById: { commentForest: { trees } } } });
+
+  async function fallback(limit: number, pages: unknown[], blockExpansion = false) {
+    const requests: { url: string; body: Record<string, unknown> & { variables: Record<string, unknown> & { count: number; after?: string } } }[] = [];
+    const result = await postfetch(url, { comments: limit, fetch: (async (input, init) => {
+      const target = String(input);
+      if (target.includes("access_token")) return Response.json({ access_token: "test-token" });
+      expect(new Headers(init?.headers).get("authorization")).toBe("Bearer test-token");
+      if (target.includes("by_id")) return Response.json(listing([])[0]);
+      if (target.includes("oauth.reddit.com")) {
+        if (blockExpansion && target.includes("sort=top") && !target.includes("morechildren")) return Response.json(listing([comment("old"), more("b")]));
+        return new Response("Blocked", { status: 403 });
+      }
+      expect(target).toBe("https://gql-fed.reddit.com/");
+      requests.push({ url: target, body: JSON.parse(String(init?.body)) });
+      expect(init?.method).toBe("POST");
+      expect(new Headers(init?.headers).get("content-type")).toBe("application/json");
+      const next = pages.shift();
+      if (next === undefined) throw new Error("offline");
+      return next instanceof Response ? next : Response.json(next);
+    }) as typeof fetch });
+    return { result, requests: requests.filter((request) => request.url.includes("gql-fed")) };
+  }
+
+  test("uses the same token for top comments when OAuth comments are forbidden", async () => {
+    const { result, requests } = await fallback(2, [page(
+      tree("deleted", { __typename: "DeletedComment" }), tree("removed", { isRemoved: true }),
+      tree("admin", { isAdminTakedown: true }), tree("placeholder", { content: { markdown: "[deleted]" } }),
+      tree("nested", {}, { depth: 1, parentId: "t1_a" }), tree("wrong", {}, { parentId: "t3_other" }),
+      tree("a"), tree("a"), tree("b"), tree("c"),
+    )]);
+    expect(result.comments.map((comment) => comment.id)).toEqual(["a", "b"]);
+    expect(result.comments[0]).toMatchObject({
+      url: `https://www.reddit.com/comments/${id}/_/a/`,
+      metadata: { text: "Comment a", author: { handle: "reader" }, likeCount: 23, createdAt: "2026-10-23T20:28:11.000Z" },
+    });
+    expect(result.metadata?.text).toBe("Root");
+    expect(requests[0].body).toEqual({
+      operationName: "PostComments",
+      variables: { id: `t3_${id}`, sortType: "TOP", count: 2, maxDepth: 1, includeConsistencyToken: false, includePremiumAvatarTreatment: false },
+      extensions: { persistedQuery: { version: 1, sha256Hash: "314f29c2494fd78c7844ef2c6b09acb4bef5b37ab50b4ddc01691d6d5c8433f8" } },
+    });
+  });
+
+  test("paginates root cursors, ignores nested cursors and stops repeated cursors", async () => {
+    const { result, requests } = await fallback(205, [
+      page(tree("a"), continuation("next"), continuation("nested", { depth: 1, parentId: "t1_a" })),
+      page(tree("a"), tree("b"), continuation("next")),
+    ]);
+    expect(result.comments.map((comment) => comment.id)).toEqual(["a", "b"]);
+    expect(requests.map((request) => request.body.variables.count)).toEqual([200, 200]);
+    expect(requests.map((request) => request.body.variables.after)).toEqual([undefined, "next"]);
+  });
+
+  test("requests only the remaining comments on the next page", async () => {
+    const { result, requests } = await fallback(3, [page(tree("a"), continuation("next")), page(tree("b"))]);
+    expect(result.comments).toHaveLength(2);
+    expect(requests.map((request) => request.body.variables.count)).toEqual([3, 2]);
+  });
+
+  test("keeps inline image and GIF order and cleans their markers", async () => {
+    const { result } = await fallback(5, [page(tree("a", { content: {
+      markdown: "Look\n![gif](giphy|g)\n![img](photo)\nhttps://example.com/image.jpg\n![img](missing)",
+      richtextMedia: [
+        { id: "photo", status: "VALID", mimetype: "image/jpeg", url: "https://i.redd.it/photo.jpg" },
+        { id: "giphy|g", status: "VALID", mimetype: "image/gif", url: "https://external-preview.redd.it/g.gif" },
+        { id: "missing", status: "FAILED", url: "https://i.redd.it/missing.jpg" },
+      ],
+    } }))]);
+    expect(result.comments[0].items.map((item) => item.mime)).toEqual(["image/gif", "image/jpeg"]);
+    expect(result.comments[0].metadata.text).toBe("Look\n\n\nhttps://example.com/image.jpg\n![img](missing)");
+  });
+
+  test("falls back when expansion is forbidden and replaces the partial JSON list", async () => {
+    const { result } = await fallback(5, [page(tree("a"))], true);
+    expect(result.comments.map((comment) => comment.id)).toEqual(["a"]);
+  });
+
+  test("accepts an empty forest", async () => {
+    const { result } = await fallback(5, [page()]);
+    expect(result.comments).toEqual([]);
+  });
+
+  test.each([null, {}, { errors: [{ message: "PersistedQueryNotFound" }] }, new Response("invalid"), new Response(null, { status: 403 })])("preserves the root on GraphQL failure: %j", async (response) => {
+    const { result } = await fallback(5, [response]);
+    expect(result.comments).toEqual([]);
+    expect(result.metadata?.text).toBe("Root");
+  });
+
+  test("returns no comments when a later GraphQL page fails", async () => {
+    const { result } = await fallback(5, [page(tree("a"), continuation("next"))]);
+    expect(result.comments).toEqual([]);
+    expect(result.metadata?.text).toBe("Root");
+  });
+});

@@ -329,6 +329,10 @@ async function redditComments(input: ResolveContext, token: string, id: string):
   try {
     const headers = { authorization: `Bearer ${token}`, "user-agent": browserUserAgent() };
     const response = await input.net(`https://oauth.reddit.com/comments/${id}?raw_json=1&limit=${Math.min(limit, 100)}&depth=1&sort=top`, { headers }, 1);
+    if (response.status === 403) {
+      await response.body?.cancel();
+      return await graphqlComments(input.net, headers, id, limit);
+    }
     if (!response.ok) throw new Error("Reddit comments failed");
     const payload: unknown = await response.json();
     const listing = Array.isArray(payload) ? payload[1] : null;
@@ -364,6 +368,10 @@ async function redditComments(input: ResolveContext, token: string, id: string):
       const url = new URL("https://oauth.reddit.com/api/morechildren");
       url.search = new URLSearchParams({ api_type: "json", raw_json: "1", link_id: `t3_${id}`, children: children.join(","), sort: "top", depth: "1", limit_children: "true" }).toString();
       const more = await input.net(url.href, { headers }, 1);
+      if (more.status === 403) {
+        await more.body?.cancel();
+        return await graphqlComments(input.net, headers, id, limit);
+      }
       if (!more.ok) throw new Error("Reddit more comments failed");
       const result: unknown = await more.json();
       const json = object(result) && object(result.json) ? result.json : null;
@@ -375,6 +383,75 @@ async function redditComments(input: ResolveContext, token: string, id: string):
   } catch {
     return [];
   }
+}
+
+// Reddit blocks anonymous OAuth comment routes while its mobile GraphQL API
+// still accepts the same token. This is the app's registered PostComments query;
+// gql-fed rejects arbitrary query text. Keep the JSON API as the first choice.
+const postCommentsHash = "314f29c2494fd78c7844ef2c6b09acb4bef5b37ab50b4ddc01691d6d5c8433f8";
+
+async function graphqlComments(net: Net, headers: Record<string, string>, id: string, limit: number): Promise<PostComment[]> {
+  const comments: PostComment[] = [];
+  const seen = new Set<string>();
+  const cursors = new Set<string>();
+  let after: string | undefined;
+  do {
+    const response = await net("https://gql-fed.reddit.com/", {
+      method: "POST",
+      headers: { ...headers, "content-type": "application/json" },
+      body: JSON.stringify({
+        operationName: "PostComments",
+        variables: {
+          id: `t3_${id}`, sortType: "TOP", count: Math.min(200, limit - comments.length), maxDepth: 1,
+          includeConsistencyToken: false, includePremiumAvatarTreatment: false,
+          ...(after && { after }),
+        },
+        extensions: { persistedQuery: { version: 1, sha256Hash: postCommentsHash } },
+      }),
+    }, 1);
+    if (!response.ok) throw new Error(`Reddit GraphQL comments failed: ${response.status}`);
+    const payload: unknown = await response.json();
+    const data = object(payload) && object(payload.data) ? payload.data : null;
+    const post = data && object(data.postInfoById) ? data.postInfoById : null;
+    const forest = post && object(post.commentForest) ? post.commentForest : null;
+    if (!forest || !Array.isArray(forest.trees)) throw new Error("Invalid Reddit GraphQL comments");
+    after = undefined;
+    for (const tree of forest.trees) {
+      if (!object(tree) || tree.depth !== 0 || (tree.parentId != null && tree.parentId !== `t3_${id}`)) continue;
+      if (object(tree.more)) {
+        after = string(tree.more.cursor) ?? undefined;
+        continue;
+      }
+      if (!object(tree.node) || comments.length >= limit) continue;
+      const node = tree.node;
+      const fullname = string(node.id);
+      const content = object(node.content) ? node.content : null;
+      const body = content && string(content.markdown);
+      if (!fullname || !/^t1_[a-z0-9]+$/i.test(fullname) || seen.has(fullname) || !body
+        || body === "[deleted]" || body === "[removed]" || node.__typename === "DeletedComment" || node.isRemoved === true || node.isAdminTakedown === true) continue;
+      seen.add(fullname);
+      const metadata: Json = {};
+      const media = Array.isArray(content.richtextMedia) ? content.richtextMedia.filter(object) : [];
+      for (const asset of media) {
+        const mediaId = string(asset.id);
+        const url = string(asset.url);
+        if (!mediaId || !url || (asset.status && asset.status !== "VALID")) continue;
+        const mime = string(asset.mimetype);
+        metadata[mediaId] = { m: mime, s: mime === "video/mp4" ? { mp4: url } : { u: url } };
+      }
+      // The API uses microseconds and offsets like +0000; normalize for JS dates.
+      const createdAt = string(node.createdAt)?.replace(/(\.\d{3})\d+/, "$1").replace(/([+-]\d{2})(\d{2})$/, "$1:$2");
+      comments.push(redditComment({
+        author: object(node.authorInfo) ? node.authorInfo.name : undefined,
+        created_utc: createdAt ? Math.floor(Date.parse(createdAt) / 1000) : undefined,
+        ups: node.score,
+        media_metadata: metadata,
+      }, fullname.slice(3), id, body));
+    }
+    if (!after || cursors.has(after)) break;
+    cursors.add(after);
+  } while (comments.length < limit);
+  return comments;
 }
 
 function redditComment(data: Json, id: string, postId: string, body: string): PostComment {
