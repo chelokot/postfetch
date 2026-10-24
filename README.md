@@ -106,6 +106,16 @@ or trim to fit; their original audio is discarded. If the selected minimum makes
 the video longer than the audio, the track loops and is trimmed to fit. Otherwise
 it plays once, with silence filling any final partial-frame rounding remainder.
 
+This path is platform-independent and also accepts one photo with a soundtrack.
+An audio item's optional `clip: { start, duration? }` selects a segment in seconds
+before duration calculation and looping; ordinary downloads retain the source
+audio file. Instagram photo/carousel resolvers append licensed music or original
+audio using this same contract, including the post's selected music segment.
+When the public page omits music metadata, a best-effort mobile lookup supplements
+it. Instagram may require login for that lookup; in that case the available
+photos remain downloadable, without a fabricated soundtrack. Single video posts
+retain the audio in their MP4 rather than replacing it with attributed music.
+
 The returned `video/mp4` Blob contains H.264 video and AAC audio. Visuals fit
 inside a 720×1280 canvas with black padding and preserved aspect ratio. Override
 `width` and `height` with positive even integers. `AudioSliderVideoOptions` also

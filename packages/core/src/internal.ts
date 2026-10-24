@@ -13,6 +13,12 @@ export type MediaItem = {
    * the bundled remuxer; callers that read `url` directly get the silent video.
    */
   audio?: { headers: HeadersInit; url: string };
+  /**
+   * Playback segment in seconds when this audio item is a slideshow soundtrack.
+   * Download helpers return the source file; buildAudioSliderVideo trims this
+   * segment before measuring or looping it. Omitted duration plays to the end.
+   */
+  clip?: { start: number; duration?: number };
   /** Suggested download filename. */
   filename: string;
   /** Headers required to fetch {@link MediaItem.url} from the CDN. */

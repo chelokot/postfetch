@@ -60,9 +60,11 @@ export async function resolveInstagram(input: ResolveContext): Promise<Postfetch
   const code = shortcode(input.url);
   const videoRequired = /\/(?:reel|reels|tv)\//.test(asUrl(input.url).pathname);
   const page = await pageMedia(input.net, code, input.preferredWidth);
+  let mobile: Promise<Json | null> | undefined;
+  const getMobile = () => mobile ??= mobileMedia(input.net, code, input.preferredWidth, page.media);
   const resolvers: Array<() => Promise<Json | null>> = [
     async () => page.media,
-    () => mobileMedia(input.net, code, input.preferredWidth),
+    getMobile,
     () => embedMedia(input.net, code),
     () => graphqlMedia(input.net, code),
   ];
@@ -80,6 +82,18 @@ export async function resolveInstagram(input: ResolveContext): Promise<Postfetch
   const items = mediaItems(media, code, input.preferredWidth);
   if (items.length === 0) {
     throw new Error("Instagram media url not found");
+  }
+  // The logged-out page often omits music_metadata altogether. Ask the mobile
+  // endpoint once for that post's soundtrack, retaining the page's visuals and
+  // metadata even when the optional lookup is gated or fails. An explicit null
+  // means there is no soundtrack; a video's audio is already in its MP4.
+  if (soundtrackEligible(items) && !items.some((item) => item.kind === "audio") &&
+      media.music_metadata === undefined && !object(media.clips_metadata)) {
+    const richer = await getMobile().catch(() => null);
+    const samePost = richer && (string(richer.code) ? richer.code === code :
+      string(richer.pk) !== null && string(richer.pk) === string(media.pk));
+    const audio = samePost ? instagramAudio(richer, code) : null;
+    if (audio) items.push(audio);
   }
   return { archiveFilename: filename(`instagram_${code}.zip`), comments: [], id: code, items, metadata: instagramMetadata(media), platform: "instagram" };
 }
@@ -261,8 +275,8 @@ function searchMedia(node: unknown, code: string): Json | null {
   return null;
 }
 
-async function mobileMedia(net: Net, code: string, preferredWidth: number): Promise<Json | null> {
-  const id = await mediaId(net, code);
+async function mobileMedia(net: Net, code: string, preferredWidth: number, hint?: Json | null): Promise<Json | null> {
+  const id = string(hint?.pk) ?? string(hint?.id) ?? await mediaId(net, code);
   if (!id) {
     return null;
   }
@@ -429,15 +443,46 @@ function mediaItems(media: Json, code: string, preferredWidth: number): MediaIte
     const node = object(edge) && object(edge.node) ? edge.node : null;
     return node ? instagramItem(node, code, index + 1, preferredWidth) : [];
   });
-  if (oldItems.length > 0) {
-    return oldItems;
-  }
   const carousel = Array.isArray(media.carousel_media) ? media.carousel_media.filter(object) : [];
   const newItems = carousel.flatMap((item, index) => instagramItem(item, code, index + 1, preferredWidth));
-  if (newItems.length > 0) {
-    return newItems;
-  }
-  return instagramItem(media, code, null, preferredWidth);
+  const items = oldItems.length > 0 ? oldItems : newItems.length > 0 ? newItems : instagramItem(media, code, null, preferredWidth);
+  const audio = soundtrackEligible(items) ? instagramAudio(media, code) : null;
+  return audio ? [...items, audio] : items;
+}
+
+function soundtrackEligible(items: MediaItem[]): boolean {
+  return items.length > 1 || items[0]?.kind === "image";
+}
+
+// Normalize Instagram's field names to the same trailing audio item used by
+// other resolvers. Consumers can build a slideshow without platform branches.
+function instagramAudio(media: Json, code: string): MediaItem | null {
+  const metadata = object(media.music_metadata) ? media.music_metadata : object(media.clips_metadata) ? media.clips_metadata : null;
+  if (!metadata) return null;
+  const info = object(metadata.music_info) ? metadata.music_info : null;
+  const consumption = info && object(info.music_consumption_info) ? info.music_consumption_info : null;
+  if (consumption?.should_mute_audio === true) return null;
+  const asset = info && object(info.music_asset_info) ? info.music_asset_info : null;
+  const original = object(metadata.original_sound_info) ? metadata.original_sound_info : null;
+  const selected = [asset, original].find((value) => value &&
+    (string(value.progressive_download_url) ?? string(value.fast_start_progressive_download_url)));
+  const url = selected && (string(selected.progressive_download_url) ?? string(selected.fast_start_progressive_download_url));
+  if (!url || !/^https?:\/\//i.test(url)) return null;
+  const start = number(consumption?.audio_asset_start_time_in_ms);
+  const duration = number(consumption?.overlap_duration_in_ms);
+  const clip = (start !== null && start >= 0) || (duration !== null && duration > 0)
+    ? { start: Math.max(0, start ?? 0) / 1000, ...(duration !== null && duration > 0 ? { duration: duration / 1000 } : {}) }
+    : undefined;
+  return {
+    filename: filename(`instagram_${code}_audio.m4a`),
+    headers: { "user-agent": browserUserAgent() },
+    id: code,
+    kind: "audio",
+    mime: "audio/mp4",
+    platform: "instagram",
+    url,
+    ...(clip && { clip }),
+  };
 }
 
 function instagramCookies(headers: Headers, fallback: Record<string, string | null>): string {

@@ -23,8 +23,9 @@ const fps = 30;
  * one audio item. Downloads preserve each item's headers and assemble HLS.
  * Visuals retain their aspect ratio, padded with black to the output size.
  * Video clips play from the beginning, looping or trimming to fit; their own
- * audio is discarded. The final audio item plays in full; when the minimum
- * slideshow duration is longer, it loops and is trimmed to the result.
+ * audio is discarded. The final audio item's optional `clip` selects the attached
+ * segment; otherwise the whole track plays. When the minimum slideshow duration
+ * is longer, that segment/track loops and is trimmed to the result.
  *
  * Each visual gets at least `delay` ms or audio duration / visual count,
  * whichever is longer (rounded up to 30 fps, minimum two frames). Adjacent
@@ -55,6 +56,11 @@ export async function buildAudioSliderVideo(
   if (!options || !Number.isFinite(options.delay) || options.delay <= 0) {
     throw new PostfetchError(400, "delay must be a positive finite number of milliseconds");
   }
+  const clip = items.at(-1)?.clip;
+  if (clip && (!Number.isFinite(clip.start) || clip.start < 0 ||
+      (clip.duration !== undefined && (!Number.isFinite(clip.duration) || clip.duration <= 0)))) {
+    throw new PostfetchError(400, "Audio clip must have a non-negative finite start and a positive finite duration");
+  }
   const width = options.width ?? 720;
   const height = options.height ?? 1280;
   for (const [name, value] of [["width", width], ["height", height]] as const) {
@@ -77,6 +83,19 @@ export async function buildAudioSliderVideo(
       const response = await download(item, options);
       await io.writeFile(path, new Uint8Array(await response.arrayBuffer()));
       paths.push(path);
+    }
+    if (clip) {
+      const path = `${directory}/soundtrack.wav`;
+      const trimmed = await io.run(options.ffmpegPath ?? "ffmpeg", [
+        "-nostdin", "-hide_banner", "-loglevel", "error", "-y",
+        "-ss", String(clip.start), "-i", paths[visuals.length],
+        ...(clip.duration === undefined ? [] : ["-t", String(clip.duration)]),
+        "-map", "0:a:0", "-c:a", "pcm_s16le", path,
+      ]);
+      if (!trimmed.success) {
+        throw new PostfetchError(500, `Audio slider soundtrack trimming failed: ${trimmed.stderr}`);
+      }
+      paths[visuals.length] = path;
     }
     const probe = await io.run(options.ffprobePath ?? "ffprobe", [
       "-v", "error", "-select_streams", "a:0", "-show_entries",

@@ -120,3 +120,94 @@ describe("instagram media fallbacks", () => {
     expect(graphql?.body).toContain("fb_api_req_friendly_name=PolarisPostRootQuery");
   });
 });
+
+describe("instagram photo soundtracks", () => {
+  const code = "MUSIC1";
+  const photo = { code, pk: "123", image_versions2: { candidates: [{ url: "https://cdn.test/photo.jpg" }] } };
+  const licensed = {
+    music_info: {
+      music_asset_info: { progressive_download_url: "https://cdn.test/song.m4a" },
+      music_consumption_info: { audio_asset_start_time_in_ms: 12500, overlap_duration_in_ms: 7500 },
+    },
+  };
+
+  async function resolve(media: Record<string, unknown>, mobile?: Record<string, unknown> | Error) {
+    const requests: string[] = [];
+    const injectedFetch = (async (input: string | URL | Request) => {
+      const url = String(input);
+      requests.push(url);
+      if (url === `https://www.instagram.com/p/${code}/`) {
+        return new Response(`<script type="application/json">${JSON.stringify({ media })}</script>`);
+      }
+      if (url === "https://i.instagram.com/api/v1/media/123/info/") {
+        if (mobile instanceof Error) throw mobile;
+        return mobile ? Response.json({ items: [mobile] }) : new Response("login_required", { status: 403 });
+      }
+      throw new Error(`Unexpected request: ${url}`);
+    }) as typeof fetch;
+    return { result: await postfetch(`https://www.instagram.com/p/${code}/`, { fetch: injectedFetch }), requests };
+  }
+
+  test("normalizes a single photo and its selected music segment to visual + audio", async () => {
+    const { result, requests } = await resolve({ ...photo, music_metadata: licensed });
+    expect(result.items.map((item) => item.kind)).toEqual(["image", "audio"]);
+    expect(result.items[1]).toMatchObject({
+      filename: "instagram_MUSIC1_audio.m4a", platform: "instagram", mime: "audio/mp4",
+      url: "https://cdn.test/song.m4a", clip: { start: 12.5, duration: 7.5 },
+    });
+    expect(requests).toHaveLength(1);
+  });
+
+  test.each(["carousel_media", "edge_sidecar_to_children"])("appends one original soundtrack to %s in visual order", async (shape) => {
+    const visuals = [photo, { video_versions: [{ width: 720, url: "https://cdn.test/clip.mp4" }] }];
+    const { result } = await resolve({
+      ...photo,
+      [shape]: shape === "carousel_media" ? visuals : { edges: visuals.map((node) => ({ node })) },
+      music_metadata: { original_sound_info: { fast_start_progressive_download_url: "https://cdn.test/original.m4a" } },
+    });
+    expect(result.items.map((item) => item.kind)).toEqual(["image", "video", "audio"]);
+    expect(result.items[2].url).toBe("https://cdn.test/original.m4a");
+    expect(result.items[2].clip).toBeUndefined();
+  });
+
+  test("enriches a sparse page without replacing its photo or caption", async () => {
+    const { result, requests } = await resolve({ ...photo, caption: "Page caption", clips_metadata: null }, {
+      ...photo, image_versions2: { candidates: [{ url: "https://cdn.test/smaller.jpg" }] }, music_metadata: licensed,
+    });
+    expect(result.items.map((item) => item.kind)).toEqual(["image", "audio"]);
+    expect(result.items[0].url).toBe("https://cdn.test/photo.jpg");
+    expect(result.metadata?.text).toBe("Page caption");
+    expect(requests).toEqual([`https://www.instagram.com/p/${code}/`, "https://i.instagram.com/api/v1/media/123/info/"]);
+  });
+
+  test("ignores soundtrack data for a different post", async () => {
+    const { result } = await resolve(photo, { ...photo, code: "OTHER", music_metadata: licensed });
+    expect(result.items.map((item) => item.kind)).toEqual(["image"]);
+  });
+
+  test.each([undefined, new Error("connection failed")])("keeps the photo when optional enrichment is unavailable (%s)", async (mobile) => {
+    const { result } = await resolve(photo, mobile);
+    expect(result.items.map((item) => item.kind)).toEqual(["image"]);
+  });
+
+  test("does not replace a video's own audio with its attributed song", async () => {
+    const { result, requests } = await resolve({
+      ...photo, video_versions: [{ width: 720, url: "https://cdn.test/video.mp4" }], clips_metadata: licensed,
+    });
+    expect(result.items.map((item) => item.kind)).toEqual(["video"]);
+    expect(requests).toHaveLength(1);
+  });
+
+  test.each([
+    null,
+    {},
+    { music_info: { music_asset_info: { progressive_download_url: "" } } },
+    { music_info: { music_asset_info: { progressive_download_url: "not-a-url" } } },
+    { music_info: { music_asset_info: { web_30s_preview_download_url: "https://cdn.test/preview.m4a" } } },
+    { ...licensed, music_info: { ...licensed.music_info, music_consumption_info: { should_mute_audio: true } } },
+  ])("does not invent or preview a missing/unavailable soundtrack (%j)", async (music_metadata) => {
+    const { result, requests } = await resolve({ ...photo, music_metadata });
+    expect(result.items.map((item) => item.kind)).toEqual(["image"]);
+    expect(requests).toHaveLength(1);
+  });
+});
