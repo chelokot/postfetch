@@ -128,7 +128,12 @@ async function mediaItems(input: ResolveContext, post: Json, id: string): Promis
     return own;
   }
   const parents = Array.isArray(post.crosspost_parent_list) ? post.crosspost_parent_list.filter(object) : [];
-  return parents[0] ? extract(input, parents[0], id) : [];
+  const parent = parents[0];
+  const inherited = parent ? await extract(input, parent, id) : [];
+  if (inherited.length > 0) {
+    return inherited;
+  }
+  return linkPreviewItems(post, id).concat(parent ? linkPreviewItems(parent, id) : []).slice(0, 1);
 }
 
 async function extract(input: ResolveContext, post: Json, id: string): Promise<MediaItem[]> {
@@ -275,6 +280,48 @@ function imageItems(post: Json, id: string): MediaItem[] {
   const path = asUrl(url).pathname;
   const isImage = string(post.post_hint) === "image" || asUrl(url).hostname === "i.redd.it" || /\.(jpe?g|png|webp|gif)$/i.test(path);
   return isImage ? [mediaItem(id, null, "image", mimeOf(null, url), url)] : [];
+}
+
+function linkPreviewItems(post: Json, id: string): MediaItem[] {
+  // Reddit also supplies preview images for photos/videos and self posts. Only
+  // external link cards belong here; native attachments take precedence above.
+  const destination = string(post.url_overridden_by_dest) ?? string(post.url);
+  if (post.is_self === true || !destination) return [];
+  try {
+    const url = new URL(destination);
+    if (!/^https?:$/.test(url.protocol) || /(^|\.)(reddit\.com|redd\.it)$/.test(url.hostname)) return [];
+  } catch {
+    return [];
+  }
+  const preview = object(post.preview) ? post.preview : null;
+  const images = preview && Array.isArray(preview.images) ? preview.images.filter(object) : [];
+  const candidates = images.flatMap((image) => {
+    const source = object(image.source) ? [image.source] : [];
+    const resolutions = Array.isArray(image.resolutions) ? image.resolutions.filter(object) : [];
+    return [...source, ...resolutions].flatMap((rendition, index) => {
+      const rawUrl = string(rendition.url);
+      if (!rawUrl) return [];
+      try {
+        const url = new URL(rawUrl.replace(/&amp;/g, "&"));
+        if (!/^https?:$/.test(url.protocol)) return [];
+        return [{
+          url: url.href,
+          original: source.length > 0 && index === 0 ? 1 : 0,
+          area: Math.max(0, number(rendition.width) ?? 0) * Math.max(0, number(rendition.height) ?? 0),
+        }];
+      } catch {
+        return [];
+      }
+    });
+  }).sort((a, b) => b.original - a.original || b.area - a.area);
+  const best = candidates[0];
+  if (!best) return [];
+  const mime = mimeOf(null, best.url);
+  return [{
+    ...mediaItem(id, null, "image", mime, best.url),
+    filename: filename(`reddit_${id}_preview.${extensionOf(mime)}`),
+    role: "linkPreview",
+  }];
 }
 
 function mediaItem(id: string, index: number | null, kind: MediaItem["kind"], mime: string, url: string): MediaItem {

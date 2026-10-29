@@ -23,6 +23,93 @@ async function resolve(comments: number | undefined, pages: unknown[] = []) {
   return { result, requests };
 }
 
+describe("Reddit website previews", () => {
+  const preview = "https://external-preview.redd.it/studio.jpg?auto=webp&s=signature";
+  const card = {
+    post_hint: "link", is_self: false, url: "https://www.apple.com/shop/buy-mac/mac-studio",
+    preview: { enabled: false, images: [{
+      source: { url: preview.replaceAll("&", "&amp;"), width: 1200, height: 630 },
+      resolutions: [{ url: "https://external-preview.redd.it/small.jpg", width: 320, height: 168 }],
+    }] },
+  };
+  async function resolvePost(fields: Record<string, unknown>) {
+    const requests: string[] = [];
+    const result = await postfetch(url, { fetch: (async (input) => {
+      const target = String(input);
+      requests.push(target);
+      if (target.includes("access_token")) return Response.json({ access_token: "test-token" });
+      if (target.includes("oauth.reddit.com/comments/")) return Response.json([{ data: { children: [{ data: {
+        id, title: "Mac Studio", subreddit: "LocalLLaMA", ...fields,
+      } }] } }]);
+      throw new Error(`Unexpected URL: ${target}`);
+    }) as typeof fetch });
+    expect(requests).toHaveLength(2);
+    return result;
+  }
+
+  test("uses Reddit's original card image even when preview.enabled is false", async () => {
+    const result = await resolvePost(card);
+    expect(result.items).toMatchObject([{
+      id, platform: "reddit", kind: "image", mime: "image/jpeg", role: "linkPreview",
+      filename: `reddit_${id}_preview.jpg`, url: preview,
+    }]);
+    expect(result.items).toHaveLength(1);
+    expect(result.metadata).toMatchObject({ title: "Mac Studio", extra: { subreddit: "LocalLLaMA" } });
+  });
+
+  test("uses the largest valid resolution when the source is missing or invalid", async () => {
+    const result = await resolvePost({ ...card, preview: { images: [{
+      source: { url: "javascript:invalid" },
+      resolutions: [
+        { url: "https://external-preview.redd.it/small.png", width: 320, height: 168 },
+        { url: "not a URL", width: 9999, height: 9999 },
+        { url: "https://external-preview.redd.it/large.png", width: 1080, height: 567 },
+      ],
+    }] } });
+    expect(result.items).toMatchObject([{
+      url: "https://external-preview.redd.it/large.png", mime: "image/png", filename: `reddit_${id}_preview.png`,
+    }]);
+  });
+
+  test.each([null, {}, { images: [null, { source: { url: "file:///tmp/card.jpg" } }] }])("ignores missing or malformed preview data: %j", async (preview) => {
+    expect((await resolvePost({ ...card, preview, thumbnail: "https://example.com/tiny.jpg" })).items).toEqual([]);
+  });
+
+  test.each([
+    { is_self: true },
+    { url: "https://www.reddit.com/r/pics/comments/other/" },
+    { url: "https://redd.it/other" },
+    { url: "mailto:someone@example.com" },
+    { url: undefined },
+  ])("does not treat non-link posts as website cards: %j", async (fields) => {
+    expect((await resolvePost({ ...card, ...fields })).items).toEqual([]);
+  });
+
+  test("does not duplicate an image post with its preview", async () => {
+    const result = await resolvePost({ ...card, post_hint: "image", url: "https://i.redd.it/photo.jpg" });
+    expect(result.items).toMatchObject([{ url: "https://i.redd.it/photo.jpg" }]);
+    expect(result.items).toHaveLength(1);
+    expect(result.items[0].role).toBeUndefined();
+  });
+
+  test("retains a crosspost's gallery instead of downloading its card image", async () => {
+    const result = await resolvePost({ ...card, crosspost_parent_list: [{
+      gallery_data: { items: [{ media_id: "photo" }] },
+      media_metadata: { photo: { m: "image/jpeg", s: { u: "https://i.redd.it/photo.jpg" } } },
+    }] });
+    expect(result.items).toMatchObject([{ url: "https://i.redd.it/photo.jpg" }]);
+    expect(result.items).toHaveLength(1);
+    expect(result.items[0].role).toBeUndefined();
+  });
+
+  test("inherits an external link preview from a crosspost", async () => {
+    const result = await resolvePost({
+      url: "https://www.reddit.com/r/pics/comments/other/", crosspost_parent_list: [card],
+    });
+    expect(result.items).toMatchObject([{ id, role: "linkPreview", url: preview }]);
+  });
+});
+
 describe("Reddit post lookup fallback", () => {
   const post = {
     id: "1xchebs", title: "Apple заблокировала все iPhone Duo", selftext: "Post body", subreddit: "KafkaFPS",
