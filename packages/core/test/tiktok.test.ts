@@ -40,6 +40,78 @@ function shellThenEmbed(id: string, videoData: object, requests: Array<{ url: st
 }
 
 describe("tiktok page fallbacks", () => {
+  test("classifies a sensitive-content shortlink with empty video as login required", async () => {
+    const id = "7687401313407110407";
+    const url = "https://vt.tiktok.com/ZSgonwH4F/";
+    const requests: string[] = [];
+    const injectedFetch = (async (input: string | URL | Request) => {
+      const target = String(input);
+      requests.push(target);
+      if (target === url) {
+        return new Response(null, {
+          status: 301,
+          headers: { location: `https://www.tiktok.com/@toreto20003/video/${id}?_r=1` },
+        });
+      }
+      const hydration = {
+        __DEFAULT_SCOPE__: {
+          "webapp.video-detail": {
+            statusCode: 0,
+            itemInfo: {
+              itemStruct: {
+                id, desc: "", createTime: "0", video: {},
+                isContentClassified: true, ContentClassificationReason: "209007",
+              },
+            },
+          },
+        },
+      };
+      return new Response(`<script id="__UNIVERSAL_DATA_FOR_REHYDRATION__" type="application/json">${JSON.stringify(hydration)}</script>`);
+    }) as typeof fetch;
+
+    await expect(postfetch(url, { fetch: injectedFetch })).rejects.toMatchObject({
+      status: 401, reason: "loginRequired",
+    });
+    expect(requests).toEqual([url, `https://www.tiktok.com/@i/video/${id}`]);
+  });
+
+  test("does not infer a login gate from unclassified missing media", async () => {
+    const hydration = {
+      __DEFAULT_SCOPE__: {
+        "webapp.video-detail": { itemInfo: { itemStruct: { video: {} } } },
+      },
+    };
+    const injectedFetch = (async (_input: string | URL | Request) => new Response(
+      `<script id="__UNIVERSAL_DATA_FOR_REHYDRATION__" type="application/json">${JSON.stringify(hydration)}</script>`,
+    )) as typeof fetch;
+
+    const error = await postfetch("https://www.tiktok.com/@creator/video/123", { fetch: injectedFetch }).catch((error: unknown) => error);
+    expect(error).toBeInstanceOf(Error);
+    expect(error).toMatchObject({ message: "TikTok media not found" });
+    expect(error).not.toHaveProperty("reason");
+  });
+
+  test("keeps classified posts downloadable when media is available", async () => {
+    for (const media of [
+      { video: { playAddr: "https://cdn.test/main.mp4" } },
+      { imagePost: { images: [{ imageURL: { urlList: ["https://cdn.test/one.jpg"] } }] } },
+    ]) {
+      const hydration = {
+        __DEFAULT_SCOPE__: {
+          "webapp.video-detail": {
+            itemInfo: { itemStruct: { isContentClassified: true, ...media } },
+          },
+        },
+      };
+      const injectedFetch = (async (_input: string | URL | Request) => new Response(
+        `<script id="__UNIVERSAL_DATA_FOR_REHYDRATION__" type="application/json">${JSON.stringify(hydration)}</script>`,
+      )) as typeof fetch;
+      const result = await postfetch("https://www.tiktok.com/@creator/video/123", { fetch: injectedFetch });
+      expect(result.items).toHaveLength(1);
+      expect(result.items[0]?.kind).toBe("video" in media ? "video" : "image");
+    }
+  });
+
   test("downloadBlob materializes protected media with the resolved TikTok headers", async () => {
     const id = "1122334455";
     const mediaUrl = "https://v16-webapp-prime.tiktok.com/video/main.mp4";

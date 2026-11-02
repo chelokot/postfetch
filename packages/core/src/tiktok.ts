@@ -5,6 +5,7 @@ import {
   filename,
   isoFromEpochSeconds,
   object,
+  PostfetchError,
   string,
   type PostMetadata,
   type TiktokExtra,
@@ -40,6 +41,11 @@ export async function resolveTiktok(input: ResolveContext): Promise<PostfetchRes
   }
   const items = mediaItems(page.item, user, id, headers);
   if (items.length === 0) {
+    // TikTok returns a successful hydration response with an empty video for
+    // sensitive-content posts that anonymous viewers must log in to open.
+    if (page.item.isContentClassified === true) {
+      throw new PostfetchError(401, "TikTok post requires login to open classified content", "loginRequired");
+    }
     throw new Error("TikTok media not found");
   }
   return { archiveFilename: filename(`tiktok_${user}_${id}.zip`), comments: [], id, items, metadata: tiktokMetadata(page.item), platform: "tiktok" };
