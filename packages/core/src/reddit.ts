@@ -17,17 +17,17 @@ import {
   type MediaItem,
 } from "./internal";
 import { browserUserAgent } from "./fingerprint";
+import { fetchWebPost, fetchRssPost, readWebPage, type RedditPage } from "./reddit-web";
 
-// Logged-out reddit (www/old/api/.json) is fully 403-walled. The public
-// installed-app OAuth flow still works: a client id with no secret plus the
-// opt-out device id returns a bearer that reads any public post through
-// oauth.reddit.com.
+// The installed-app token can still be issued while both OAuth post routes
+// reject it with Reddit's network-security page. Keep the public page as a
+// fallback rather than treating a successful token request as API availability.
 const installedClientId = "ohXpoqrZYub1kg";
 
 export async function resolveReddit(input: ResolveContext): Promise<PostfetchResult> {
-  const id = await postId(input.net, input.url);
+  const { id, url, page } = await postId(input.net, input.url);
   const token = await appToken(input.net);
-  const post = await fetchPost(input.net, token, id);
+  const post = await fetchPost(input.net, token, id, url, page);
   // A text post is a valid result with metadata and no media — fetchPost has
   // already thrown if the post itself is missing, so empty items here mean a
   // self/text post, not a failure.
@@ -54,19 +54,20 @@ export function redditMetadata(post: Json): PostMetadata & { extra?: RedditExtra
   };
 }
 
-// Share and short links (redd.it/<id>, /r/<sub>/s/<share>) carry no post id, so
-// they are followed once to read the canonical /comments/<id> location.
-async function postId(net: Net, input: string): Promise<string> {
+// Share links have no post id. Retain their canonical page and client identity
+// so a blocked API lookup can reuse the response instead of fetching it again.
+async function postId(net: Net, input: string): Promise<{ id: string; url: string; page?: RedditPage }> {
   const direct = parseId(input);
   if (direct) {
-    return direct;
+    return { id: direct, url: input };
   }
-  const response = await net(input, { headers: { "user-agent": browserUserAgent() } }, 1);
-  const resolved = parseId(response.url);
+  const userAgent = browserUserAgent();
+  const page = await readWebPage(await net(input, { headers: { "user-agent": userAgent } }, 1), userAgent);
+  const resolved = parseId(page.url);
   if (!resolved) {
     throw new Error("Reddit post id not found");
   }
-  return resolved;
+  return { id: resolved, url: page.url, page };
 }
 
 function parseId(input: string): string | null {
@@ -99,7 +100,7 @@ async function appToken(net: Net): Promise<string> {
   return token;
 }
 
-async function fetchPost(net: Net, token: string, id: string): Promise<Json> {
+async function fetchPost(net: Net, token: string, id: string, url: string, page?: RedditPage): Promise<Json> {
   const headers = { authorization: `Bearer ${token}`, "user-agent": browserUserAgent() };
   let response = await net(`https://oauth.reddit.com/comments/${id}?raw_json=1&limit=1`, { headers });
   // Reddit can block the comments route while still allowing direct post
@@ -109,6 +110,15 @@ async function fetchPost(net: Net, token: string, id: string): Promise<Json> {
     response = await net(`https://oauth.reddit.com/by_id/t3_${id}?raw_json=1`, { headers });
   }
   if (!response.ok) {
+    if (response.status === 403) {
+      await response.body?.cancel();
+      // Public pages can remain available when both OAuth routes are
+      // blocked. Keep the original failure if the page cannot supply the post.
+      const post = await fetchWebPost(net, id, url, page).catch(() => null);
+      if (post) return post;
+      const rss = await fetchRssPost(net, id).catch(() => null);
+      if (rss) return rss;
+    }
     throw new Error(`Reddit post failed: ${response.status}`);
   }
   const payload = await response.json().catch(() => null);
@@ -173,23 +183,34 @@ type Rendition = { width: number | null; bandwidth: number; base: string };
 async function videoItems(input: ResolveContext, post: Json, id: string): Promise<MediaItem[]> {
   const media = redditVideo(post);
   const fallback = media ? string(media.fallback_url) : null;
-  if (!media || !fallback) {
+  if (!media) {
     return [];
   }
+  const dashUrl = string(media.dash_url);
+  // Public pages expose the player and manifest rather than a fallback stream
+  // or has_audio flag. Inspect the manifest so silent clips remain silent and
+  // clips with audio retain their separate track through the normal remuxer.
+  if (!fallback && dashUrl) {
+    const streams = await dashStreams(input.net, dashUrl, input.preferredWidth, true);
+    if (!streams) throw new Error("Reddit DASH manifest unavailable for muxing");
+    return [streams.audio
+      ? muxedVideoItem(id, streams.video, streams.audio)
+      : mediaItem(id, null, "video", "video/mp4", streams.video)];
+  }
+  if (!fallback) return [];
   if (media.has_audio !== true) {
     return [mediaItem(id, null, "video", "video/mp4", fallback)];
   }
   // The fallback stream is video-only; reddit keeps audio in a separate DASH
   // rendition, so a complete file is the video and audio streams merged.
-  const dashUrl = string(media.dash_url);
   const streams = dashUrl ? await dashStreams(input.net, dashUrl, input.preferredWidth) : null;
-  if (!streams) {
+  if (!streams?.audio) {
     throw new Error("Reddit DASH manifest unavailable for muxing");
   }
   return [muxedVideoItem(id, streams.video, streams.audio)];
 }
 
-async function dashStreams(net: Net, dashUrl: string, preferredWidth: number): Promise<{ video: string; audio: string } | null> {
+async function dashStreams(net: Net, dashUrl: string, preferredWidth: number, allowSilent = false): Promise<{ video: string; audio?: string } | null> {
   const response = await net(dashUrl, { headers: { "user-agent": browserUserAgent() } });
   if (!response.ok) {
     return null;
@@ -199,10 +220,10 @@ async function dashStreams(net: Net, dashUrl: string, preferredWidth: number): P
   const query = dashUrl.includes("?") ? dashUrl.slice(dashUrl.indexOf("?")) : "";
   const video = videoRendition(manifest, preferredWidth);
   const audio = audioRendition(manifest);
-  if (!video || !audio) {
+  if (!video || (!audio && !allowSilent)) {
     return null;
   }
-  return { video: `${base}${video}${query}`, audio: `${base}${audio}${query}` };
+  return { video: `${base}${video}${query}`, ...(audio ? { audio: `${base}${audio}${query}` } : {}) };
 }
 
 function videoRendition(manifest: string, preferredWidth: number): string | null {
