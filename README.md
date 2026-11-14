@@ -50,7 +50,7 @@ if (result.items.length === 1) {
 | `toResponse` | `(result, options?) => Promise<Response>` | One item → streamed file; many → zip. Used by the server and templates. |
 | `PostfetchError` | `class { status, message }` | Carries an HTTP status for adapters to map. |
 
-`PostfetchOptions` — `{ fetch?: typeof fetch; preferredWidth?: number; tryMaxBytes?: number }`. `tryMaxBytes` is a soft byte cap: postfetch probes the normally selected media with `HEAD` and, when it is too large, returns a smaller available rendition. For X videos, every MP4 variant is probed and the highest-quality combination whose complete result fits is selected; if none fit, the smallest variants are returned. Other platforms keep the normal result when its size or a smaller rendition cannot be discovered. Injecting `fetch` is what makes the resolvers unit-testable offline:
+`PostfetchOptions` — `{ fetch?: typeof fetch; preferredWidth?: number; tryMaxBytes?: number; languages?: string[] }`. `tryMaxBytes` is a soft byte cap: postfetch probes the normally selected media with `HEAD` and, when it is too large, returns a smaller available rendition. For X videos, every MP4 variant is probed and the highest-quality combination whose complete result fits is selected; if none fit, the smallest variants are returned. Other platforms keep the normal result when its size or a smaller rendition cannot be discovered. Injecting `fetch` is what makes the resolvers unit-testable offline:
 
 ```ts
 const result = await postfetch(url, { fetch: myStub });
@@ -278,3 +278,16 @@ Fewer available replies are returned normally. Each comment has `id`, `url`,
 `metadata`, and its own downloadable `items` (photos, videos, and GIFs).
 Comment media stays separate from `result.items`; use `download` or `downloadBlob`
 on those items to fetch the bytes. The main post still resolves if replies fail.
+
+### X text languages
+
+Pass `postfetch(url, { languages: ["en", "ru"] })` to keep X posts written in
+any allowed language. Other posts are translated to the first language in the
+list, falling back to English and then the original if translation is unavailable.
+The ordered list must be non-empty; omit it to keep original text. This applies
+independently to quoted posts, parent posts and requested replies. Regional
+variants match a base language (`en` allows `en-US`). Other platforms ignore it.
+
+`metadata.extra.lang` remains the detected original language. Translated posts
+also expose `metadata.extra.originalText` and `metadata.extra.translatedLang`.
+Translations use FxTwitter's public translation API and do not alter video audio.

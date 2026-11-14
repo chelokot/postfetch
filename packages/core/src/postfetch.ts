@@ -16,6 +16,11 @@ export type PostfetchOptions = {
   fetch?: typeof fetch;
   /** Maximum direct comments to fetch for X and Reddit. Other platforms ignore this option. Failures return an empty array. */
   comments?: number;
+  /** Allowed X text languages, in preference order. Preserve allowed originals;
+   * otherwise translate to the first language, then English, then keep the original.
+   * Omit to keep original text. Applies to quotes, parents and requested replies too.
+   */
+  languages?: string[];
   /** Preferred media width in pixels; the closest available rendition is chosen. Defaults to `720`. */
   preferredWidth?: number;
   /**
@@ -61,6 +66,7 @@ export async function postfetch(url: string, options: PostfetchOptions = {}): Pr
   }
   const context: ResolveContext = {
     net: createNet(options.fetch ?? globalThis.fetch),
+    languages: options.languages === undefined ? undefined : normalizeLanguages(options.languages),
     comments: options.comments,
     preferredWidth: options.preferredWidth ?? 720,
     tryMaxBytes: options.tryMaxBytes,
@@ -70,6 +76,13 @@ export async function postfetch(url: string, options: PostfetchOptions = {}): Pr
   return options.tryMaxBytes === undefined || result.platform === "twitter"
     ? result
     : trySmaller(context, result, options.tryMaxBytes);
+}
+
+function normalizeLanguages(languages: string[]): string[] {
+  if (!Array.isArray(languages) || languages.length === 0 || languages.some((lang) => typeof lang !== "string" || !/^[a-z]{2,3}(?:-[a-z0-9]{2,8})*$/i.test(lang))) {
+    throw new PostfetchError(400, "languages must be a non-empty list of language codes");
+  }
+  return [...new Set(languages.map((lang) => lang.toLowerCase()))];
 }
 
 async function resolve(context: ResolveContext): Promise<PostfetchResult> {

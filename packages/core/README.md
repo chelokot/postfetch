@@ -59,9 +59,22 @@ const blob = await buildAudioSliderVideo(result.items, { delay: 3000 });
 form.append("video", blob, "slideshow.mp4");
 ```
 
-- `PostfetchOptions` — `{ fetch?: typeof fetch; preferredWidth?: number; tryMaxBytes?: number }`. `tryMaxBytes` is a soft byte cap. X probes every MP4 variant and selects the highest-quality complete result that fits, falling back to its smallest variants when none do. Other platforms return a smaller available rendition when possible and otherwise keep the normal result. Inject `fetch` to unit-test resolvers offline.
+- `PostfetchOptions` — `{ fetch?: typeof fetch; preferredWidth?: number; tryMaxBytes?: number; languages?: string[] }`. `tryMaxBytes` is a soft byte cap. X probes every MP4 variant and selects the highest-quality complete result that fits, falling back to its smallest variants when none do. Other platforms return a smaller available rendition when possible and otherwise keep the normal result. Inject `fetch` to unit-test resolvers offline.
 - Every request rotates a consistent browser/app fingerprint, so a fixed user-agent never gets the whole fleet blocked.
 - No runtime dependencies, no `yt-dlp`, no cookies. `ffmpeg` is only used when
   `downloadBlob(..., { remux: true })` or `buildAudioSliderVideo` is requested.
 
 See the [root README](https://github.com/chelokot/postfetch#readme) for the full API table, supported inputs and the fingerprint design.
+
+### X text languages
+
+Pass `postfetch(url, { languages: ["en", "ru"] })` to keep X posts written in
+any allowed language. Other posts are translated to the first language in the
+list, falling back to English and then the original if translation is unavailable.
+The ordered list must be non-empty; omit it to keep original text. This applies
+independently to quoted posts, parent posts and requested replies. Regional
+variants match a base language (`en` allows `en-US`). Other platforms ignore it.
+
+`metadata.extra.lang` remains the detected original language. Translated posts
+also expose `metadata.extra.originalText` and `metadata.extra.translatedLang`.
+Translations use FxTwitter's public translation API and do not alter video audio.

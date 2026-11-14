@@ -33,6 +33,7 @@ export async function resolveTwitter(input: ResolveContext): Promise<PostfetchRe
     throw new Error("Tweet is unavailable or age-restricted");
   }
   await expandTwitterText(input.net, tweet, id);
+  await Promise.all(twitterTweets(tweet, id, true).map(({ id, tweet }) => translateTwitterText(input, tweet, id)));
   const posts = twitterTweets(tweet, id);
   const groups = posts.flatMap(({ id: postId, tweet: post }) => {
     const media = Array.isArray(post.mediaDetails) ? post.mediaDetails.filter(object) : [];
@@ -61,6 +62,11 @@ export function twitterMetadata(tweet: Json): PostMetadata & { extra?: TwitterEx
   if (lang) {
     extra.lang = lang;
   }
+  const translated = string(tweet.translated_text);
+  if (translated) {
+    extra.originalText = cleanTwitterText(twitterText(tweet), tweet) ?? undefined;
+    extra.translatedLang = string(tweet.translated_lang) ?? undefined;
+  }
   const quotedTweet = object(tweet.quoted_tweet) ? tweet.quoted_tweet : null;
   const quotedId = quotedTweet ? string(quotedTweet.id_str) : null;
   if (quotedTweet && quotedId) {
@@ -74,7 +80,7 @@ export function twitterMetadata(tweet: Json): PostMetadata & { extra?: TwitterEx
     extra.parentTweet = { id: parentId, metadata: twitterMetadata(parent) };
   }
   return {
-    text: cleanTwitterText(twitterText(tweet), tweet) ?? undefined,
+    text: cleanTwitterText(translated ?? twitterText(tweet), tweet) ?? undefined,
     author: user
       ? {
           handle: string(user.screen_name) ?? undefined,
@@ -128,6 +134,42 @@ function needsFullText(tweet: Json): boolean {
   // Embedded quotes can omit note_tweet entirely. Near-limit text is only a
   // hint: ordinary long tweets may also incur a lookup, but are never shortened.
   return object(tweet.note_tweet) || bool(tweet.truncated) === true || (string(tweet.text)?.length ?? 0) >= 270;
+}
+
+async function translateTwitterText(input: ResolveContext, tweet: Json, id: string): Promise<void> {
+  const languages = input.languages;
+  if (!languages?.length || !twitterText(tweet)) return;
+  const lang = string(tweet.lang)?.toLowerCase();
+  const allowed = (source: string) => languages.some((language) => source === language || source.startsWith(`${language}-`));
+  if (lang && allowed(lang)) return;
+  for (const target of new Set([languages[0], "en"])) {
+    try {
+      const response = await input.net(`https://api.fxtwitter.com/status/${id}/${target}`, {
+        headers: { accept: "application/json", "user-agent": browserUserAgent() },
+      }, 1);
+      if (!response.ok) continue;
+      const payload: unknown = await response.json();
+      if (!object(payload) || payload.code !== 200 || !object(payload.tweet) || string(payload.tweet.id) !== id) continue;
+      const post = payload.tweet;
+      const translation = object(post.translation) ? post.translation : null;
+      const source = (string(post.lang) ?? string(translation?.source_lang))?.toLowerCase();
+      // The richer lookup may identify a language omitted by syndication.
+      if (source && source !== "und") {
+        tweet.lang = source;
+        if (allowed(source)) return;
+      }
+      const text = translation ? string(translation.text) : null;
+      if (!text?.trim() || string(translation?.target_lang)?.toLowerCase() !== target) continue;
+      // FxTwitter can return DeepL's client-upgrade error as a successful
+      // translation. It is an upstream failure, not the author's post text.
+      if (text.includes("You're using an older version of DeepL.")) continue;
+      tweet.translated_text = text;
+      tweet.translated_lang = target;
+      return;
+    } catch {
+      // Translation is optional; a failed lookup must not lose the post.
+    }
+  }
 }
 
 async function expandTwitterText(net: Net, tweet: Json, rootId: string): Promise<void> {
@@ -368,15 +410,21 @@ async function twitterComments(input: ResolveContext, id: string): Promise<PostC
       const payload: unknown = await response.json();
       if (!object(payload) || payload.code !== 200 || !Array.isArray(payload.replies)) throw new Error("Invalid comments");
       const previousCount = comments.length;
+      const page: Array<{ id: string; reply: Json }> = [];
       for (const reply of payload.replies) {
         if (!object(reply)) continue;
         const replyId = string(reply.id);
         const parent = object(reply.replying_to) ? string(reply.replying_to.status) : null;
         if (!replyId || parent !== id || seen.has(replyId)) continue;
         seen.add(replyId);
-        comments.push(twitterComment(reply, replyId));
-        if (comments.length >= limit) return comments;
+        page.push({ id: replyId, reply });
+        if (comments.length + page.length >= limit) break;
       }
+      comments.push(...await Promise.all(page.map(async ({ id, reply }) => {
+        await translateTwitterText(input, reply, id);
+        return twitterComment(reply, id);
+      })));
+      if (comments.length >= limit) return comments;
       cursor = object(payload.cursor) ? string(payload.cursor.bottom) : null;
       if (!cursor || cursors.has(cursor) || comments.length === previousCount) break;
       cursors.add(cursor);
@@ -410,7 +458,7 @@ function twitterComment(reply: Json, id: string): PostComment {
     url: `https://x.com/i/status/${id}`,
     items,
     metadata: {
-      text: cleanTwitterText(string(reply.text), reply) ?? undefined,
+      text: cleanTwitterText(string(reply.translated_text) ?? string(reply.text), reply) ?? undefined,
       author: {
         handle: string(author.screen_name) ?? undefined,
         name: string(author.name) ?? undefined,

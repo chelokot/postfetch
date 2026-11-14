@@ -113,6 +113,10 @@ export type TwitterExtra = {
   replyToId?: string;
   /** BCP 47 language tag detected for the tweet. */
   lang?: string;
+  /** Original text retained when a requested translation is used. */
+  originalText?: string;
+  /** Language of the translated text. `lang` still describes the original. */
+  translatedLang?: string;
   /** The post quoted by this post, when X includes it in the resolved payload. */
   quotedTweet?: TwitterQuotedTweet;
   /** The parent this post replies to, when included by X. Media is not collected. */
@@ -228,6 +232,7 @@ export type Net = (url: string, init?: RequestInit, attempts?: number) => Promis
 export type ResolveContext = {
   net: Net;
   preferredWidth: number;
+  languages?: string[];
   comments?: number;
   /** Requested soft byte cap, for resolvers that can rank exact rendition sizes. */
   tryMaxBytes?: number;
