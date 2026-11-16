@@ -17,7 +17,7 @@ import {
   type MediaItem,
 } from "./internal";
 import { browserUserAgent } from "./fingerprint";
-import { fetchWebPost, fetchRssPost, readWebPage, type RedditPage } from "./reddit-web";
+import { fetchWebPost, fetchEmbeddedPost, fetchRssPost, readWebPage, type RedditPage } from "./reddit-web";
 
 // The installed-app token can still be issued while both OAuth post routes
 // reject it with Reddit's network-security page. Keep the public page as a
@@ -116,6 +116,8 @@ async function fetchPost(net: Net, token: string, id: string, url: string, page?
       // blocked. Keep the original failure if the page cannot supply the post.
       const post = await fetchWebPost(net, id, url, page).catch(() => null);
       if (post) return post;
+      const embedded = await fetchEmbeddedPost(net, id).catch(() => null);
+      if (embedded) return embedded;
       const rss = await fetchRssPost(net, id).catch(() => null);
       if (rss) return rss;
     }
@@ -147,7 +149,7 @@ async function mediaItems(input: ResolveContext, post: Json, id: string): Promis
 }
 
 async function extract(input: ResolveContext, post: Json, id: string): Promise<MediaItem[]> {
-  const gallery = galleryItems(post, id);
+  const gallery = await galleryMedia(input, post, id);
   if (gallery.length > 0) {
     return gallery;
   }
@@ -158,7 +160,28 @@ async function extract(input: ResolveContext, post: Json, id: string): Promise<M
   return imageItems(post, id);
 }
 
-function galleryItems(post: Json, id: string): MediaItem[] {
+async function galleryMedia(input: ResolveContext, post: Json, id: string): Promise<MediaItem[]> {
+  const metadata = object(post.media_metadata) ? post.media_metadata : {};
+  if (!Object.values(metadata).some((meta) => object(meta) && meta.e === "RedditVideo")) return galleryItems(post, id);
+  const data = object(post.gallery_data) ? post.gallery_data : null;
+  const order = data && Array.isArray(data.items) ? data.items.filter(object) : [];
+  const items: MediaItem[] = [];
+  for (const [index, entry] of order.entries()) {
+    const key = string(entry.media_id);
+    const meta = key && object(metadata[key]) ? metadata[key] : null;
+    if (meta?.e === "RedditVideo") {
+      const videos = await videoItems(input, { secure_media: { reddit_video: { dash_url: meta.dashUrl } } }, id);
+      if (!videos.length) throw new Error("Reddit gallery video unavailable");
+      items.push(...videos.map((video) => ({ ...video, filename: filename(`reddit_${id}_${index + 1}.mp4`) })));
+    } else {
+      // Retain the original position in filenames when videos split the images.
+      items.push(...galleryItems({ ...post, gallery_data: { items: [entry] } }, id, index + 1));
+    }
+  }
+  return items;
+}
+
+function galleryItems(post: Json, id: string, startIndex = 1): MediaItem[] {
   const data = object(post.gallery_data) ? post.gallery_data : null;
   const order = data && Array.isArray(data.items) ? data.items.filter(object) : [];
   const metadata = object(post.media_metadata) ? post.media_metadata : {};
@@ -171,10 +194,10 @@ function galleryItems(post: Json, id: string): MediaItem[] {
     }
     const video = string(best.mp4);
     if (video) {
-      return [mediaItem(id, index + 1, "video", "video/mp4", video)];
+      return [mediaItem(id, index + startIndex, "video", "video/mp4", video)];
     }
     const image = string(best.u) ?? string(best.gif);
-    return image ? [mediaItem(id, index + 1, "image", mimeOf(string(meta?.m), image), image)] : [];
+    return image ? [mediaItem(id, index + startIndex, "image", mimeOf(string(meta?.m), image), image)] : [];
   });
 }
 

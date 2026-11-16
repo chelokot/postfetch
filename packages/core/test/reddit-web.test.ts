@@ -66,6 +66,7 @@ function fixture(options: { html?: string; challenge?: string; webStatus?: numbe
       return new Response("Blocked", { status: options.apiStatus ?? 403 });
     }
     expect(headers.has("authorization")).toBe(false);
+    if (url === `https://www.reddit.com/comments/${id}?embedded=true`) return new Response(null, { status: 403 });
     if (url === `https://www.reddit.com/comments/${id}/.rss?limit=1`) {
       rssRequests++;
       if (rssRequests === 1 && options.rssReset !== undefined) return new Response(null, { status: 429, headers: { "x-ratelimit-reset": options.rssReset } });
@@ -169,7 +170,7 @@ describe("Reddit public page fallback", () => {
       ? new Response(null, { status: 302, headers: { location: "https://example.com/" } })
       : base.fetch(input, init)) as typeof globalThis.fetch;
     await expect(postfetch(canonical, { fetch })).rejects.toThrow("Reddit post failed: 403");
-    expect(base.requests).toHaveLength(4);
+    expect(base.requests).toHaveLength(5);
   });
 
   for (const type of ["video", "gif"]) {
@@ -321,6 +322,6 @@ describe("Reddit public page fallback", () => {
   ])("does not follow an unrecognized or off-site form %#", async (challenge) => {
     const { fetch, requests } = fixture({ challenge });
     await expect(postfetch(share, { fetch })).rejects.toThrow("Reddit post failed: 403");
-    expect(requests).toHaveLength(5);
+    expect(requests).toHaveLength(6);
   });
 });

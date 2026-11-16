@@ -79,6 +79,59 @@ export async function fetchWebPost(net: Net, id: string, input: string, initial?
   return null;
 }
 
+// The embedded view still serves legacy gallery markup when the main page is
+// a CAPTCHA. Its media-id list includes videos that have no gallery thumbnail.
+export async function fetchEmbeddedPost(net: Net, id: string): Promise<Json | null> {
+  const page = await fetchWebPage(net, `https://www.reddit.com/comments/${id}?embedded=true`, browserUserAgent());
+  if (!page.ok) return null;
+  for (const match of page.html.matchAll(/<div\s([^>]+)>/gi)) {
+    const post = attributes(match[1]);
+    if (post.id !== `thing_t3_${id}` || post["data-fullname"] !== `t3_${id}` || post["data-is-gallery"] !== "true") continue;
+    const html = divContent(page.html, match.index + match[0].length);
+    if (html === null) return null;
+    const title = [...html.matchAll(/<a\s([^>]+)>([\s\S]*?)<\/a>/gi)]
+      .find((link) => attributes(link[1])["data-event-action"] === "title")?.[2];
+    const preview = [...html.matchAll(/<div\s([^>]+)>/gi)]
+      .map((tag) => attributes(tag[1])).find((attrs) => attrs.id === `media-preview-${id}`);
+    const ids = preview?.["data-media-ids"]?.split(",") ?? [];
+    if (!title || !ids.length || ids.some((key) => !/^[a-z0-9]+$/i.test(key)) || new Set(ids).size !== ids.length) return null;
+    const metadata: Record<string, Json> = {};
+    for (const link of html.matchAll(/<a\s([^>]+)>/gi)) {
+      const attrs = attributes(link[1]);
+      const url = new URL(attrs.href ?? "", "https://www.reddit.com");
+      if (url.protocol !== "https:") continue;
+      if (attrs.class?.split(/\s+/).includes("gallery-item-thumbnail-link")) {
+        const index = Number(attrs["data-position"]) - 1;
+        const key = ids[index];
+        // Only the gallery's full-size link identifies an original. Never
+        // promote a tile, cover, comment image, or recommendation to an item.
+        if (!Number.isSafeInteger(index) || !key || !/^(?:preview|i)\.redd\.it$/.test(url.hostname)
+          || !new RegExp(`^/${key}\\.(?:png|jpe?g|webp)$`, "i").test(url.pathname)) continue;
+        metadata[key] = { s: { u: `https://i.redd.it${url.pathname}` } };
+      } else if (/^(?:www\.)?reddit\.com$/.test(url.hostname)) {
+        const video = url.pathname.match(/^\/link\/([a-z0-9]+)\/video\/([a-z0-9]+)\/player\/?$/i);
+        if (video?.[1] === id && ids.includes(video[2])) {
+          metadata[video[2]] = { e: "RedditVideo", dashUrl: `https://v.redd.it/${video[2]}/DASHPlaylist.mpd` };
+        }
+      }
+    }
+    if (ids.some((key) => !metadata[key])) return null;
+    const body = [...html.matchAll(/<div\s([^>]+)>/gi)]
+      .find((tag) => attributes(tag[1]).class?.split(/\s+/).includes("usertext-body"));
+    const text = body ? divContent(html, body.index + body[0].length) : null;
+    const timestamp = finiteNumber(post["data-timestamp"]);
+    return {
+      id, title: plainText(title), selftext: text === null ? undefined : plainText(text.replace(/<a\s[^>]*>https:\/\/(?:www\.)?reddit\.com\/link\/[a-z0-9]+\/video\/[a-z0-9]+\/player<\/a>/gi, "")),
+      author: post["data-author"], subreddit: post["data-subreddit"], permalink: post["data-permalink"],
+      created_utc: timestamp === undefined ? undefined : Math.floor(timestamp / 1000),
+      ups: finiteNumber(post["data-score"]), score: finiteNumber(post["data-score"]), num_comments: finiteNumber(post["data-comments-count"]),
+      over_18: post["data-nsfw"] === "true" ? true : post["data-nsfw"] === "false" ? false : undefined,
+      gallery_data: { items: ids.map((media_id) => ({ media_id })) }, media_metadata: metadata,
+    };
+  }
+  return null;
+}
+
 // The public Atom feed remains usable on some routes that reject OAuth and
 // browser pages. Match the root entry explicitly: replies have their own media.
 export async function fetchRssPost(net: Net, id: string): Promise<Json | null> {
@@ -222,16 +275,21 @@ function postText(html: string, id: string): string | undefined {
   for (const match of html.matchAll(/<div\s([^>]+)>/gi)) {
     const attrs = attributes(match[1]);
     if (attrs.id !== `t3_${id}-post-rtjson-content`) continue;
-    const start = match.index + match[0].length;
-    const tags = /<div\b[^>]*>|<\/div\s*>/gi;
-    tags.lastIndex = start;
-    let depth = 1;
-    for (let tag = tags.exec(html); tag; tag = tags.exec(html)) {
-      depth += tag[0].startsWith("</") ? -1 : 1;
-      if (depth === 0) return plainText(html.slice(start, tag.index));
-    }
+    const content = divContent(html, match.index + match[0].length);
+    if (content !== null) return plainText(content);
   }
   return undefined;
+}
+
+function divContent(html: string, start: number): string | null {
+  const tags = /<div\b[^>]*>|<\/div\s*>/gi;
+  tags.lastIndex = start;
+  let depth = 1;
+  for (let tag = tags.exec(html); tag; tag = tags.exec(html)) {
+    depth += tag[0].startsWith("</") ? -1 : 1;
+    if (depth === 0) return html.slice(start, tag.index);
+  }
+  return null;
 }
 
 function plainText(html: string): string {
