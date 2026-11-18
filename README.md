@@ -270,14 +270,17 @@ MIT
 
 ### X and Reddit comments
 
-Pass `comments: 5` to `postfetch(url, options)` to fetch up to five direct replies,
-ranked by likes through FxTwitter for X, or by top through Reddit’s OAuth API
-(with a mobile GraphQL fallback when Reddit blocks the comments route). `result.comments` is always an array: it is
-empty when not requested, on other platforms, or if the comment lookup fails.
-Fewer available replies are returned normally. Each comment has `id`, `url`,
-`metadata`, and its own downloadable `items` (photos, videos, and GIFs).
-Comment media stays separate from `result.items`; use `download` or `downloadBlob`
-on those items to fetch the bytes. The main post still resolves if replies fail.
+Pass `comments: 5` to `postfetch(url, options)` to retrieve up to five replies after
+the linked post. On X and Reddit, `result.comments` contains the longest available
+chain of consecutive replies by the post's author, in parent-to-child order. The
+limit applies after choosing the branch. If the post has no author chain, the
+result contains direct replies ranked by FxTwitter or by Reddit's `top` sort.
+Reddit also supports the mobile GraphQL fallback when OAuth comments are blocked.
+
+Clients sending the first `k` messages including the linked post can pass
+`comments: k - 1`. Every comment has its own `id`, `url`, `metadata` and downloadable
+`items`. The main post still resolves when the comment lookup fails. Other
+platforms return an empty `comments` array.
 
 ### X text languages
 

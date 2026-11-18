@@ -59,12 +59,20 @@ const blob = await buildAudioSliderVideo(result.items, { delay: 3000 });
 form.append("video", blob, "slideshow.mp4");
 ```
 
-- `PostfetchOptions` — `{ fetch?: typeof fetch; preferredWidth?: number; tryMaxBytes?: number; languages?: string[] }`. `tryMaxBytes` is a soft byte cap. X probes every MP4 variant and selects the highest-quality complete result that fits, falling back to its smallest variants when none do. Other platforms return a smaller available rendition when possible and otherwise keep the normal result. Inject `fetch` to unit-test resolvers offline.
+- `PostfetchOptions` — `{ fetch?: typeof fetch; preferredWidth?: number; tryMaxBytes?: number; languages?: string[]; comments?: number }`. `tryMaxBytes` is a soft byte cap. X probes every MP4 variant and selects the highest-quality complete result that fits, falling back to its smallest variants when none do. Other platforms return a smaller available rendition when possible and otherwise keep the normal result. Inject `fetch` to unit-test resolvers offline.
 - Every request rotates a consistent browser/app fingerprint, so a fixed user-agent never gets the whole fleet blocked.
 - No runtime dependencies, no `yt-dlp`, no cookies. `ffmpeg` is only used when
   `downloadBlob(..., { remux: true })` or `buildAudioSliderVideo` is requested.
 
 See the [root README](https://github.com/chelokot/postfetch#readme) for the full API table, supported inputs and the fingerprint design.
+
+### X and Reddit comments
+
+Pass `comments` to limit how many replies follow the linked post. X and Reddit
+return replies from the longest available chain by the post's author, in order
+from parent to child. If there is no author chain, the result contains direct
+replies in the platform's ranking. Use `comments: k - 1` when `k` includes the
+linked post.
 
 ### X text languages
 

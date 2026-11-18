@@ -7,15 +7,15 @@ const comment = (id: string, fields: Record<string, unknown> = {}) => ({ kind: "
   id, parent_id: "t3_1ugzn9p", author: "reader", body: `Comment ${id}`, ups: 23, created_utc: 1788950400, ...fields,
 } });
 const more = (...children: string[]) => ({ kind: "more", data: { parent_id: "t3_1ugzn9p", children } });
-const listing = (children: unknown[]) => [{ data: { children: [{ data: { id, title: "Post", selftext: "Root" } }] } }, { data: { children } }];
-async function resolve(comments: number | undefined, pages: unknown[] = []) {
+const listing = (children: unknown[], author?: string) => [{ data: { children: [{ data: { id, title: "Post", selftext: "Root", author } }] } }, { data: { children } }];
+async function resolve(comments: number | undefined, pages: unknown[] = [], author?: string) {
   const requests: string[] = [];
   const result = await postfetch(url, { comments, fetch: (async (input, init) => {
     const url = String(input);
     requests.push(url);
     if (url.includes("access_token")) return Response.json({ access_token: "test-token" });
     expect(new Headers(init?.headers).get("authorization")).toBe("Bearer test-token");
-    if (!url.includes("sort=top")) return Response.json(listing([]));
+    if (!url.includes("sort=top")) return Response.json(listing([], author));
     const page = pages.shift();
     if (page === undefined) throw new Error("offline");
     return page instanceof Response ? page : Response.json(page);
@@ -204,6 +204,21 @@ describe("Reddit comments", () => {
     expect(result.comments.map((c) => c.id)).toEqual(["a", "b"]);
     expect(new URL(requests[3]).searchParams.get("children")).toBe("b,c");
   });
+  test("prefers a longer author branch discovered through morechildren and a focused thread", async () => {
+    const own = (id: string, fields: Record<string, unknown> = {}) => comment(id, { author: "Author", ...fields });
+    const { result, requests } = await resolve(2, [
+      listing([comment("reader", { replies: { data: { children: [own("sidetrack", { parent_id: "t1_reader" })] } } }),
+        own("short", { replies: { data: { children: [own("shortend", { parent_id: "t1_short" })] } } }), more("long")]),
+      { json: { data: { things: [own("long", { replies: { data: { children: [
+        { kind: "more", data: { parent_id: "t1_long", count: 0, children: [] } },
+      ] } } })] } } },
+      listing([own("long", { replies: { data: { children: [own("middle", { parent_id: "t1_long" })] } } }),
+        own("end", { parent_id: "t1_middle" })]),
+    ], "AUTHOR");
+    expect(result.comments.map(({ id }) => id)).toEqual(["long", "middle"]);
+    expect(new URL(requests[3]).searchParams.get("children")).toBe("long");
+    expect(new URL(requests[4]).pathname).toBe(`/comments/${id}/_/long`);
+  });
   test.each([null, {}, new Response("invalid"), new Response(null, { status: 503 })])("preserves root on comment failure: %j", async (page) => {
     const { result } = await resolve(5, [page]);
     expect(result.comments).toEqual([]);
@@ -226,13 +241,13 @@ describe("Reddit GraphQL comment fallback", () => {
   const continuation = (cursor: string, fields: Record<string, unknown> = {}) => ({ depth: 0, parentId: null, more: { cursor }, ...fields });
   const page = (...trees: unknown[]) => ({ data: { postInfoById: { commentForest: { trees } } } });
 
-  async function fallback(limit: number, pages: unknown[], blockExpansion = false) {
+  async function fallback(limit: number, pages: unknown[], blockExpansion = false, author?: string) {
     const requests: { url: string; body: Record<string, unknown> & { variables: Record<string, unknown> & { count: number; after?: string } } }[] = [];
     const result = await postfetch(url, { comments: limit, fetch: (async (input, init) => {
       const target = String(input);
       if (target.includes("access_token")) return Response.json({ access_token: "test-token" });
       expect(new Headers(init?.headers).get("authorization")).toBe("Bearer test-token");
-      if (target.includes("by_id")) return Response.json(listing([])[0]);
+      if (target.includes("by_id")) return Response.json(listing([], author)[0]);
       if (target.includes("oauth.reddit.com")) {
         if (blockExpansion && target.includes("sort=top") && !target.includes("morechildren")) return Response.json(listing([comment("old"), more("b")]));
         return new Response("Blocked", { status: 403 });
@@ -282,6 +297,31 @@ describe("Reddit GraphQL comment fallback", () => {
     const { result, requests } = await fallback(3, [page(tree("a"), continuation("next")), page(tree("b"))]);
     expect(result.comments).toHaveLength(2);
     expect(requests.map((request) => request.body.variables.count)).toEqual([3, 2]);
+  });
+
+  test("uses parent IDs to follow an author branch across GraphQL pages", async () => {
+    const own = (id: string, parent?: string) => tree(id, { authorInfo: { name: "AUTHOR" } },
+      parent ? { parentId: `t1_${parent}`, depth: 1 } : {});
+    const { result, requests } = await fallback(2, [
+      page(tree("reader"), own("short"), own("shortend", "short"), continuation("roots")),
+      page(own("long"), own("middle", "long"), continuation("nested", { depth: 2, parentId: "t1_middle" })),
+      page(own("end", "middle")),
+    ], false, "Author");
+    expect(result.comments.map(({ id }) => id)).toEqual(["long", "middle"]);
+    expect(requests.map((request) => request.body.variables.after)).toEqual([undefined, "roots", "nested"]);
+    expect(requests[0].body.variables.maxDepth).toBeGreaterThan(1);
+  });
+
+  test("opens a focused GraphQL thread when the current page hits its depth limit", async () => {
+    const authorInfo = { name: "author" };
+    const { result, requests } = await fallback(3, [
+      page(tree("first", { authorInfo }), {
+        depth: 8, parentId: "t1_first", more: { cursor: "truncated", isTooDeepForCount: true },
+      }),
+      page(tree("first", { authorInfo }), tree("second", { authorInfo }, { depth: 1, parentId: "t1_first" })),
+    ], false, "author");
+    expect(result.comments.map(({ id }) => id)).toEqual(["first", "second"]);
+    expect(requests[1].body.variables.focusedCommentContext).toEqual({ commentId: "t1_first", isFocusedThreadOnly: true });
   });
 
   test("keeps inline image and GIF order and cleans their markers", async () => {

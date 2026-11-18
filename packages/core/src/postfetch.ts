@@ -14,7 +14,7 @@ import { resolveYoutube } from "./youtube";
 export type PostfetchOptions = {
   /** Custom `fetch` implementation — inject one to unit-test resolvers offline. Defaults to the global `fetch`. */
   fetch?: typeof fetch;
-  /** Maximum direct comments to fetch for X and Reddit. Other platforms ignore this option. Failures return an empty array. */
+  /** Maximum replies after the linked post on X and Reddit. Prefers the longest available chain of replies by the post's author, with direct comments as a fallback. */
   comments?: number;
   /** Allowed X text languages, in preference order. Preserve allowed originals;
    * otherwise translate to the first language, then English, then keep the original.

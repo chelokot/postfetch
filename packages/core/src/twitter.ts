@@ -17,6 +17,7 @@ import {
   type MediaItem,
 } from "./internal";
 import { browserUserAgent } from "./fingerprint";
+import { ReplyTree } from "./reply-tree";
 
 type TwitterCandidate = {
   bitrate: number;
@@ -52,7 +53,7 @@ export async function resolveTwitter(input: ResolveContext): Promise<PostfetchRe
   // A text-only tweet is a valid result with metadata and no media. Syndication
   // has already failed or returned a tombstone when the tweet is unavailable,
   // so an empty item list here does not mean the lookup failed.
-  return { archiveFilename: filename(`twitter_${id}.zip`), comments: await twitterComments(input, id), id, items, metadata: twitterMetadata(tweet), platform: "twitter" };
+  return { archiveFilename: filename(`twitter_${id}.zip`), comments: await twitterComments(input, id, tweet), id, items, metadata: twitterMetadata(tweet), platform: "twitter" };
 }
 
 export function twitterMetadata(tweet: Json): PostMetadata & { extra?: TwitterExtra } {
@@ -394,45 +395,73 @@ export function tweetId(input: string): string | null {
   return asUrl(input).pathname.match(/\/status(?:es)?\/(\d+)/)?.[1] ?? null;
 }
 
-async function twitterComments(input: ResolveContext, id: string): Promise<PostComment[]> {
-  const limit = input.comments;
-  if (!limit || !Number.isSafeInteger(limit) || limit < 0) return [];
-  try {
-    const comments: PostComment[] = [];
-    const seen = new Set<string>();
+async function twitterComments(input: ResolveContext, id: string, tweet: Json): Promise<PostComment[]> {
+  const limit = input.comments ?? 0;
+  if (!Number.isSafeInteger(limit) || limit <= 0) return [];
+  const tree = new ReplyTree<Json>(id);
+  const user = object(tweet.user) ? tweet.user : {};
+  let authorId = string(user.id_str);
+  let authorHandle = string(user.screen_name)?.toLowerCase();
+
+  async function collectConversation(parentId: string) {
     const cursors = new Set<string>();
     let cursor: string | null = null;
-    do {
-      const url = new URL(`https://api.fxtwitter.com/2/conversation/${id}`);
+    const root = parentId === id;
+    while (true) {
+      const url = new URL(`https://api.fxtwitter.com/2/conversation/${encodeURIComponent(parentId)}`);
       if (cursor) url.searchParams.set("cursor", cursor);
       const response = await input.net(url.href, { headers: { accept: "application/json", "user-agent": browserUserAgent() } }, 1);
       if (!response.ok) throw new Error("Comment lookup failed");
       const payload: unknown = await response.json();
-      if (!object(payload) || payload.code !== 200 || !Array.isArray(payload.replies)) throw new Error("Invalid comments");
-      const previousCount = comments.length;
-      const page: Array<{ id: string; reply: Json }> = [];
-      for (const reply of payload.replies) {
+      if (!object(payload) || payload.code !== 200 || (!Array.isArray(payload.replies) && !Array.isArray(payload.thread))) {
+        throw new Error("Invalid comments");
+      }
+      if (root && !cursor) {
+        const status = object(payload.status) ? payload.status : {};
+        const author = object(status.author) ? status.author : object(payload.author) ? payload.author : {};
+        authorId ??= string(author.id);
+        authorHandle ??= string(author.screen_name)?.toLowerCase();
+      }
+      const replies = Array.isArray(payload.replies) ? payload.replies : [];
+      const thread = Array.isArray(payload.thread) ? payload.thread : [];
+      let foundReply = false;
+      for (const reply of [...replies, ...thread]) {
         if (!object(reply)) continue;
         const replyId = string(reply.id);
         const parent = object(reply.replying_to) ? string(reply.replying_to.status) : null;
-        if (!replyId || parent !== id || seen.has(replyId)) continue;
-        seen.add(replyId);
-        page.push({ id: replyId, reply });
-        if (comments.length + page.length >= limit) break;
+        if (!replyId || !parent) continue;
+        const author = object(reply.author) ? reply.author : {};
+        const replyAuthorId = string(author.id);
+        const byAuthor = authorId && replyAuthorId
+          ? replyAuthorId === authorId
+          : !!authorHandle && string(author.screen_name)?.toLowerCase() === authorHandle;
+        if (tree.add({ id: replyId, parentId: parent, byAuthor, value: reply })) foundReply = true;
       }
-      comments.push(...await Promise.all(page.map(async ({ id, reply }) => {
-        await translateTwitterText(input, reply, id);
-        return twitterComment(reply, id);
-      })));
-      if (comments.length >= limit) return comments;
+      // FxTwitter can keep issuing cursors even after a conversation is exhausted.
+      if (!foundReply) break;
+      if (!authorId && !authorHandle && tree.children().length >= limit) break;
       cursor = object(payload.cursor) ? string(payload.cursor.bottom) : null;
-      if (!cursor || cursors.has(cursor) || comments.length === previousCount) break;
+      if (!cursor || cursors.has(cursor)) break;
       cursors.add(cursor);
-    } while (comments.length < limit);
-    return comments;
-  } catch {
-    return [];
+    }
   }
+
+  try {
+    await collectConversation(id);
+  } catch {
+    if (tree.children().length < limit && !tree.children().some((reply) => reply.byAuthor)) return [];
+  }
+
+  // FxTwitter may return only a preview of a reply's subtree in the root conversation.
+  for (const reply of tree.authorReplies()) {
+    const replyCount = count(reply.value.replies);
+    if (replyCount !== undefined && replyCount <= tree.children(reply.id).length) continue;
+    await collectConversation(reply.id).catch(() => {});
+  }
+  return Promise.all(tree.select(limit).map(async ({ id, value }) => {
+    await translateTwitterText(input, value, id);
+    return twitterComment(value, id);
+  }));
 }
 
 function twitterComment(reply: Json, id: string): PostComment {

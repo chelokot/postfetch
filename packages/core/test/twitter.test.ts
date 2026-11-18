@@ -254,6 +254,53 @@ describe("twitter comments", () => {
     expect(requests).toHaveLength(2);
   });
 
+  test("stops when an empty page advertises another cursor", async () => {
+    const author = { screen_name: "Author" };
+    const { result, requests } = await resolve(5, [
+      { code: 200, author, replies: [{ ...reply("first"), author, replies: 0 }], cursor: { bottom: "next" } },
+      { code: 200, replies: [], cursor: { bottom: "another" } },
+    ]);
+    expect(result.comments.map(({ id }) => id)).toEqual(["first"]);
+    expect(requests).toHaveLength(2);
+  });
+
+  test("chooses the longest self-reply path before applying the limit", async () => {
+    const author = { id: "42", screen_name: "Author" };
+    const own = (id: string, parent: string, replies = 0) => ({ ...reply(id, parent), author, replies });
+    const { result, requests } = await resolve(2, [
+      { code: 200, status: { id, author }, replies: [
+        reply("reader"), own("short", id, 1), own("short-end", "short"),
+        own("wrong-parent", "reader"), own("last", "middle"),
+      ], cursor: { bottom: "next" } },
+      { code: 200, thread: [own("long", id, 1)], replies: [
+        own("middle", "long", 1),
+        { ...own("wrong-author", "last"), author: { ...author, id: "43" } },
+      ] },
+    ]);
+    expect(result.comments.map((comment) => comment.id)).toEqual(["long", "middle"]);
+    expect(result.comments[0].items).toHaveLength(2);
+    expect(requests).toHaveLength(2);
+  });
+
+  test("opens an author's reply to discover continuations and returns only the available chain", async () => {
+    const author = { screen_name: "Author" };
+    const { result, requests } = await resolve(5, [
+      { code: 200, author, replies: [reply("reader"), { ...reply("123"), author, replies: 1 }] },
+      { code: 200, replies: [{ ...reply("456", "123"), author: { screen_name: "AUTHOR" }, replies: 0 }] },
+    ]);
+    expect(result.comments.map((comment) => comment.id)).toEqual(["123", "456"]);
+    expect(requests[1]).toBe("https://api.fxtwitter.com/2/conversation/123");
+  });
+
+  test("keeps direct reply order when the author's replies are in another user's branch", async () => {
+    const author = { id: "42", screen_name: "Author" };
+    const { result, requests } = await resolve(2, [{ code: 200, author, replies: [
+      { ...reply("own", "reader"), author, replies: 1 }, reply("reader"), reply("other"),
+    ] }]);
+    expect(result.comments.map((comment) => comment.id)).toEqual(["reader", "other"]);
+    expect(requests).toHaveLength(1);
+  });
+
   test.each([null, { code: 500 }, new Response("oops"), new Response(null, { status: 503 })])("returns [] on malformed or failed lookup: %j", async (page) => {
     const { result } = await resolve(5, [page]);
     expect(result.comments).toEqual([]);
