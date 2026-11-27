@@ -397,6 +397,37 @@ describe("live network", () => {
     120_000,
   );
 
+  test.skipIf(!runs("threads"))(
+    "reported threads share link resolves and downloads its video",
+    async () => {
+      const result = await postfetch("https://www.threads.com/share/BADl3Yd6fC");
+      expect(result.platform).toBe("threads");
+      expect(result.id).toBe("DgOFm0VjRlw");
+      expect(result.metadata?.author?.handle).toBe("maksym.trach");
+      expect(result.metadata?.text).toContain("2022");
+      const item = result.items[0];
+      expect(item?.kind).toBe("video");
+      expect(item?.mime).toBe("video/mp4");
+      if (!item) throw new Error("no item");
+      const bytes = new Uint8Array(await (await download(item)).arrayBuffer());
+      expect(String.fromCharCode(bytes[4], bytes[5], bytes[6], bytes[7])).toBe("ftyp");
+    },
+    30_000,
+  );
+
+  test.skipIf(!runs("threads"))(
+    "threads text post resolves to metadata with no media",
+    async () => {
+      const result = await postfetch("https://www.threads.com/@coachesandcompany/post/DgQHbkQiD9j");
+      expect(result.platform).toBe("threads");
+      expect(result.id).toBe("DgQHbkQiD9j");
+      expect(result.items).toEqual([]);
+      expect(result.metadata?.author?.handle).toBe("coachesandcompany");
+      expect(result.metadata?.text).toContain("affirmation");
+    },
+    30_000,
+  );
+
   test.skipIf(!runs("facebook"))(
     "facebook share link resolves to a video via the embed player",
     async () => {

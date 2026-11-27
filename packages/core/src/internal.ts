@@ -1,5 +1,5 @@
 /** A platform that {@link postfetch} can resolve. */
-export type Platform = "facebook" | "instagram" | "linkedin" | "pinterest" | "reddit" | "soundcloud" | "spotify" | "tiktok" | "twitter" | "youtube";
+export type Platform = "facebook" | "instagram" | "linkedin" | "pinterest" | "reddit" | "soundcloud" | "spotify" | "threads" | "tiktok" | "twitter" | "youtube";
 
 /** The kind of a {@link MediaItem}. */
 export type MediaKind = "audio" | "image" | "video";
@@ -183,6 +183,26 @@ export type PinterestExtra = {
   outboundLink?: string;
 };
 
+/** Threads-specific metadata. */
+export type ThreadsExtra = {
+  /** Parent post id when this post is a reply, even if the parent metadata is unavailable. */
+  replyToId?: string;
+  /** Whether this post is a reply to another Threads post. */
+  isReply?: boolean;
+  /** Number of quote posts referencing this post, when reported. */
+  quoteCount?: number;
+  /** The post quoted by this post, when Threads includes it in the resolved payload. */
+  quotedPost?: ThreadsQuotedPost;
+};
+
+/** A quoted Threads post and its normalized metadata. */
+export type ThreadsQuotedPost = {
+  /** Shortcode of the quoted post. */
+  id: string;
+  /** Metadata belonging to the quoted post rather than the outer post. */
+  metadata: PostMetadata & { extra?: ThreadsExtra };
+};
+
 /** A reply with its own metadata and downloadable media, separate from the main post. */
 export type PostComment = {
   /** Reply post id. */
@@ -204,6 +224,7 @@ export type PostfetchResult =
   | PlatformResult<"reddit", RedditExtra>
   | PlatformResult<"soundcloud", SoundcloudExtra>
   | PlatformResult<"spotify", SpotifyExtra>
+  | PlatformResult<"threads", ThreadsExtra>
   | PlatformResult<"tiktok", TiktokExtra>
   | PlatformResult<"twitter", TwitterExtra>
   | PlatformResult<"youtube", YoutubeExtra>;

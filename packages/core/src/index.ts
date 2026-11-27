@@ -48,6 +48,8 @@ export type {
   RedditExtra,
   SoundcloudExtra,
   SpotifyExtra,
+  ThreadsExtra,
+  ThreadsQuotedPost,
   TiktokExtra,
   TwitterExtra,
   TwitterQuotedTweet,

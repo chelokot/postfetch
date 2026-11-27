@@ -29,6 +29,8 @@ describe("detect", () => {
     expect(detect("https://pin.it/abcdef")).toBe("pinterest");
     expect(detect("https://soundcloud.com/artist/track")).toBe("soundcloud");
     expect(detect("https://on.soundcloud.com/abc")).toBe("soundcloud");
+    expect(detect("https://www.threads.com/share/BADl3Yd6fC")).toBe("threads");
+    expect(detect("https://www.threads.net/@maksym.trach/post/DgOFm0VjRlw")).toBe("threads");
   });
 
   test("rejects unsupported hosts", () => {

@@ -42,7 +42,7 @@ if (result.items.length === 1) {
 | Export | Signature | Notes |
 | --- | --- | --- |
 | `postfetch` | `(url, options?) => Promise<PostfetchResult>` | Detects the platform and resolves its media. |
-| `detect` | `(url) => Platform` | `"facebook" \| "instagram" \| "linkedin" \| "pinterest" \| "reddit" \| "soundcloud" \| "spotify" \| "tiktok" \| "twitter" \| "youtube"`; throws on anything else. |
+| `detect` | `(url) => Platform` | `"facebook" \| "instagram" \| "linkedin" \| "pinterest" \| "reddit" \| "soundcloud" \| "spotify" \| "threads" \| "tiktok" \| "twitter" \| "youtube"`; throws on anything else. |
 | `download` | `(item, options?) => Promise<Response>` | Fetches one item from its CDN with the right headers. |
 | `downloadBlob` | `(itemOrUrl, options?) => Promise<Blob \| RemuxedVideo>` | Downloads a media item including separate audio, or a direct URL; `remux: true` also returns video upload metadata. |
 | `buildAudioSliderVideo` | `(items, options) => Promise<Blob>` | Encodes images/videos followed by one audio item into an MP4 slideshow using local FFmpeg. |
@@ -182,6 +182,7 @@ A single post is written as one file, carousels and slideshows as a `.zip`; the 
 | Pinterest | idea pin (HLS, video + audio merged) | `video/mp4` |
 | SoundCloud | track (progressive or HLS) | `audio/mpeg` or `audio/mp4` |
 | Spotify | public `open.spotify.com/track/…` link (also localized and embed links) | matching YouTube `video/mp4` (audio included) |
+| Threads | public post, `/t/…`, or `/share/…` link (`threads.com`, `threads.net`) | `video/mp4`, image, `audio/mp4`, `zip`, or metadata (`items: []`) |
 
 Spotify track links use public embed metadata to search YouTube by artist and
 title. Matching checks title, primary artist and duration, rejects recognizable
