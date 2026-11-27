@@ -57,8 +57,9 @@ function embedHeaders(): Record<string, string> {
 }
 
 export async function resolveInstagram(input: ResolveContext): Promise<PostfetchResult> {
-  const code = shortcode(input.url);
-  const videoRequired = /\/(?:reel|reels|tv)\//.test(asUrl(input.url).pathname);
+  const resolvedUrl = await resolveShareUrl(input.net, input.url);
+  const code = shortcode(resolvedUrl);
+  const videoRequired = /\/(?:reel|reels|tv)\//.test(asUrl(resolvedUrl).pathname);
   const page = await pageMedia(input.net, code, input.preferredWidth);
   let mobile: Promise<Json | null> | undefined;
   const getMobile = () => mobile ??= mobileMedia(input.net, code, input.preferredWidth, page.media);
@@ -202,6 +203,112 @@ function instagramCaption(media: Json): string | undefined {
 
 function edgeCount(value: unknown): number | undefined {
   return object(value) ? count(value.count) : undefined;
+}
+
+const shareRedirectStatuses = new Set([301, 302, 303, 307, 308]);
+const maxShareRedirects = 5;
+
+function isInstagramHost(host: string): boolean {
+  const normalized = host.toLowerCase();
+  return normalized === "instagram.com" || normalized.endsWith(".instagram.com");
+}
+
+function isShareUrl(input: string): boolean {
+  const path = asUrl(input).pathname.split("/").filter(Boolean);
+  return path[0]?.toLowerCase() === "share";
+}
+
+function postShortcode(input: string): string | null {
+  const path = asUrl(input).pathname.split("/").filter(Boolean);
+  if (path[0]?.toLowerCase() === "share") {
+    return null;
+  }
+  const index = path.findIndex((part) => part === "p" || part === "reel" || part === "reels" || part === "tv");
+  return index >= 0 ? path[index + 1] ?? null : null;
+}
+
+function unwrapLoginNext(url: URL): string | null {
+  if (!url.pathname.startsWith("/accounts/login")) {
+    return null;
+  }
+  const next = url.searchParams.get("next");
+  if (!next) {
+    return null;
+  }
+  try {
+    const resolved = new URL(next, url);
+    return isInstagramHost(resolved.hostname) ? resolved.href : null;
+  } catch {
+    return null;
+  }
+}
+
+function shareRedirectHeaders(): Record<string, string> {
+  return {
+    "accept-language": "en-US",
+    "user-agent": instagramAppUserAgent(),
+  };
+}
+
+// Instagram /share/<token> (and /share/reel/<token>, /share/p/<token>, ...)
+// links carry an opaque share token rather than the post shortcode. With a
+// non-browser user-agent, Instagram answers with a 302 redirect whose Location
+// contains the canonical /reel/<shortcode>/ or /p/<shortcode>/ URL.
+async function resolveShareUrl(net: Net, input: string): Promise<string> {
+  if (!isShareUrl(input)) {
+    return input;
+  }
+  let current = input;
+  for (let hop = 0; hop < maxShareRedirects; hop += 1) {
+    const response = await net(current, { headers: shareRedirectHeaders(), redirect: "manual" });
+    if (response.status === 429) {
+      await response.body?.cancel();
+      throw new PostfetchError(429, "Instagram share link rate limited", "rateLimited");
+    }
+    const location = shareRedirectStatuses.has(response.status) ? response.headers.get("location") : null;
+    if (location) {
+      await response.body?.cancel();
+      let nextUrl: URL;
+      try {
+        nextUrl = new URL(location, current);
+      } catch {
+        break;
+      }
+      if (!isInstagramHost(nextUrl.hostname)) {
+        break;
+      }
+      const unwrapped = unwrapLoginNext(nextUrl);
+      if (nextUrl.pathname.startsWith("/accounts/login") && !unwrapped) {
+        throw new PostfetchError(401, "Instagram share link requires login", "loginRequired");
+      }
+      current = unwrapped ?? nextUrl.href;
+      if (postShortcode(current)) {
+        return current;
+      }
+      if (!isShareUrl(current)) {
+        break;
+      }
+      continue;
+    }
+    if (response.url) {
+      try {
+        const finalUrl = new URL(response.url);
+        if (isInstagramHost(finalUrl.hostname)) {
+          const unwrapped = unwrapLoginNext(finalUrl);
+          const candidate = unwrapped ?? finalUrl.href;
+          if (postShortcode(candidate)) {
+            await response.body?.cancel();
+            return candidate;
+          }
+        }
+      } catch {
+        // Ignore malformed response.url from test stubs.
+      }
+    }
+    await response.body?.cancel();
+    break;
+  }
+  throw new PostfetchError(404, "Instagram share link unavailable: notFound", "notFound");
 }
 
 function shortcode(input: string): string {

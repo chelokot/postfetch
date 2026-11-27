@@ -19,6 +19,11 @@ const reportedInstagramPhotos = [
   "https://www.instagram.com/p/Da5HvHpSSse/?igsh=MWM1eXNjcWhwejAydA==",
   "https://www.instagram.com/p/DacyagKRdrE/?igsh=Ym5ocmh2bnZiMTg5",
 ];
+const reportedInstagramShareReels = [
+  "https://www.instagram.com/share/BAS8G6YOty",
+  "https://www.instagram.com/share/_8ZlX639_",
+  "https://www.instagram.com/share/_2yd87iaB",
+];
 
 describe("live network", () => {
   for (const [id, title] of [
@@ -121,6 +126,21 @@ describe("live network", () => {
           const bytes = new Uint8Array(await (await download(item)).arrayBuffer());
           expect([...bytes.slice(0, 3)]).toEqual([0xff, 0xd8, 0xff]);
         }
+      }
+    },
+    60_000,
+  );
+
+  test.skipIf(!runs("instagram"))(
+    "reported instagram share links resolve and download their videos",
+    async () => {
+      for (const url of reportedInstagramShareReels) {
+        const result = await postfetch(url);
+        expect(result.platform).toBe("instagram");
+        expect(result.items[0]?.kind).toBe("video");
+        expect(result.items[0]?.mime).toBe("video/mp4");
+        const bytes = new Uint8Array(await (await download(result.items[0]!)).arrayBuffer());
+        expect(String.fromCharCode(bytes[4], bytes[5], bytes[6], bytes[7])).toBe("ftyp");
       }
     },
     60_000,

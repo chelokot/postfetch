@@ -121,6 +121,96 @@ describe("instagram media fallbacks", () => {
   });
 });
 
+describe("instagram share links", () => {
+  test.each([
+    "https://www.instagram.com/share/BAS8G6YOty",
+    "https://www.instagram.com/share/reel/BAS8G6YOty",
+    "https://www.instagram.com/share/p/BAS8G6YOty?igsh=abc",
+  ])("resolves %s through its redirect to the canonical post", async (shareUrl) => {
+    const code = "Dfm_HPzqF7o";
+    const requests: Array<{ redirect?: RequestRedirect; url: string; userAgent: string | null }> = [];
+    const injectedFetch = (async (input: string | URL | Request, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      const headers = new Headers(init?.headers);
+      requests.push({ redirect: init?.redirect, url, userAgent: headers.get("user-agent") });
+      if (url === shareUrl) {
+        return new Response("", {
+          status: 302,
+          headers: { location: `https://www.instagram.com/reel/${code}/?gwpx=abc` },
+        });
+      }
+      if (url === `https://www.instagram.com/p/${code}/`) {
+        return new Response(`<script type="application/json">${JSON.stringify({
+          media: { code, media_type: 2, video_versions: [{ width: 720, url: "https://cdn.test/shared-reel.mp4" }] },
+        })}</script>`);
+      }
+      throw new Error(`Unexpected request: ${url}`);
+    }) as typeof fetch;
+
+    const result = await postfetch(shareUrl, { fetch: injectedFetch });
+
+    expect(result.platform).toBe("instagram");
+    expect(result.id).toBe(code);
+    expect(result.items).toEqual([expect.objectContaining({ kind: "video", url: "https://cdn.test/shared-reel.mp4" })]);
+    expect(requests[0]).toMatchObject({ redirect: "manual", url: shareUrl });
+    expect(requests[0]?.userAgent).toMatch(/^Instagram /);
+  });
+
+  test("follows chained Instagram share redirects and preserves reel video requirement", async () => {
+    const code = "Ddsb3SSpOYL";
+    const cover = `<script type="application/json">${JSON.stringify({
+      media: { code, media_type: 2, image_versions2: { candidates: [{ url: "https://cdn.test/cover.jpg" }] } },
+    })}</script>`;
+    const injectedFetch = (async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url === "https://instagram.com/share/reel/_8ZlX639_") {
+        return new Response("", { status: 301, headers: { location: "https://www.instagram.com/share/reel/_8ZlX639_" } });
+      }
+      if (url === "https://www.instagram.com/share/reel/_8ZlX639_") {
+        return new Response("", {
+          status: 302,
+          headers: { location: `/accounts/login/?next=${encodeURIComponent(`/reel/${code}/`)}` },
+        });
+      }
+      if (url === `https://www.instagram.com/p/${code}/`) {
+        return new Response(cover);
+      }
+      if (url.startsWith("https://i.instagram.com/api/v1/oembed/")) {
+        return Response.json({ media_id: "999" });
+      }
+      if (url === "https://i.instagram.com/api/v1/media/999/info/") {
+        return Response.json({ items: [{ code, video_versions: [{ width: 720, url: "https://cdn.test/reel.mp4" }] }] });
+      }
+      return new Response("", { status: 404 });
+    }) as typeof fetch;
+
+    const result = await postfetch("https://instagram.com/share/reel/_8ZlX639_", { fetch: injectedFetch });
+
+    expect(result.id).toBe(code);
+    expect(result.items).toEqual([expect.objectContaining({ kind: "video", url: "https://cdn.test/reel.mp4" })]);
+  });
+
+  test("reports unresolved or rate-limited share links with typed errors", async () => {
+    const notFoundFetch = (async () => new Response("<html></html>", { status: 200 })) as unknown as typeof fetch;
+    await expect(postfetch("https://www.instagram.com/share/DOESNOTEXIST", { fetch: notFoundFetch }))
+      .rejects.toMatchObject({ name: "PostfetchError", reason: "notFound", status: 404 });
+
+    const externalFetch = (async () =>
+      new Response("", { status: 302, headers: { location: "https://evil.example/reel/ABC/" } })) as unknown as typeof fetch;
+    await expect(postfetch("https://www.instagram.com/share/EVIL", { fetch: externalFetch }))
+      .rejects.toMatchObject({ name: "PostfetchError", reason: "notFound", status: 404 });
+
+    const loginFetch = (async () =>
+      new Response("", { status: 302, headers: { location: "https://www.instagram.com/accounts/login/" } })) as unknown as typeof fetch;
+    await expect(postfetch("https://www.instagram.com/share/LOGIN", { fetch: loginFetch }))
+      .rejects.toMatchObject({ name: "PostfetchError", reason: "loginRequired", status: 401 });
+
+    const rateLimitedFetch = (async () => new Response("", { status: 429 })) as unknown as typeof fetch;
+    await expect(postfetch("https://www.instagram.com/share/LIMITED", { fetch: rateLimitedFetch }))
+      .rejects.toMatchObject({ name: "PostfetchError", reason: "rateLimited", status: 429 });
+  });
+});
+
 describe("instagram photo soundtracks", () => {
   const code = "MUSIC1";
   const photo = { code, pk: "123", image_versions2: { candidates: [{ url: "https://cdn.test/photo.jpg" }] } };

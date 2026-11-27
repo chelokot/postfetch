@@ -165,7 +165,7 @@ A single post is written as one file, carousels and slideshows as a `.zip`; the 
 | --- | --- | --- |
 | TikTok | video URL or `vt.tiktok.com` shortlink | `video/mp4` |
 | TikTok | image / slideshow post | `zip` of images (+ audio) |
-| Instagram | reel, video, or photo | `video/mp4` or `image/jpeg` |
+| Instagram | reel, video, photo, or `/share/…` link | `video/mp4` or `image/jpeg` |
 | Instagram | carousel | `zip` of images / videos |
 | LinkedIn | public post with video, including `lnkd.in/p/…` shortlinks | highest-bitrate `video/mp4` |
 | LinkedIn | public post with an image, including `lnkd.in` shortlinks | `image/jpeg` |
